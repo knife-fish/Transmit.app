@@ -1,7 +1,19 @@
 # Transmit
 
-macOS file transfer client.
+macOS file transfer client, designed to support SFTP, WebDAV, and S3-compatible modes.
 
+SFTP support for both passwords and keys has already been implemented. WebDAV and S3-compatible modes are currently under active development.
+
+We’d like to thank Transmit 5 for the inspiration; this project has no commercial affiliation with Transmit 5.
+
+We’d also like to acknowledge all the third-party libraries used in this project!
+
+<details>
+<summary>Screenshot</summary>
+
+![main](docs/screenshot/main.png)![servers](docs/screenshot/servers.png)
+
+</details>
 
 ## Goal
 
