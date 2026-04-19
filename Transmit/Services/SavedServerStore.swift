@@ -54,6 +54,7 @@ private struct StoredServerProfile: Codable {
     let privateKeyPath: String?
     let publicKeyPath: String?
     let addressPreference: ConnectionAddressPreference
+    let s3Region: String?
     let defaultLocalDirectoryPath: String?
     let defaultRemotePath: String?
     let systemImage: String
@@ -70,6 +71,7 @@ private struct StoredServerProfile: Codable {
         self.privateKeyPath = serverProfile.privateKeyPath
         self.publicKeyPath = serverProfile.publicKeyPath
         self.addressPreference = serverProfile.addressPreference
+        self.s3Region = serverProfile.s3Region
         self.defaultLocalDirectoryPath = serverProfile.defaultLocalDirectoryPath
         self.defaultRemotePath = serverProfile.defaultRemotePath
         self.systemImage = serverProfile.systemImage
@@ -88,6 +90,7 @@ private struct StoredServerProfile: Codable {
             privateKeyPath: privateKeyPath,
             publicKeyPath: publicKeyPath,
             addressPreference: addressPreference,
+            s3Region: s3Region,
             defaultLocalDirectoryPath: defaultLocalDirectoryPath,
             defaultRemotePath: defaultRemotePath,
             systemImage: systemImage,

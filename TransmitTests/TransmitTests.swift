@@ -2362,6 +2362,263 @@ struct TransmitTests {
         #expect(location.path == "sftp://example.com/")
     }
 
+    @Test func cloudRemoteSessionFactoryUsesS3Client() async throws {
+        let server = ServerProfile(
+            name: "MinIO",
+            endpoint: "https://s3.example.com",
+            port: 443,
+            username: "access",
+            connectionKind: .cloud,
+            authenticationMode: .password,
+            defaultLocalDirectoryPath: nil,
+            defaultRemotePath: "/bucket",
+            systemImage: "icloud",
+            accentName: "Green"
+        )
+        let draft = ConnectionDraft(
+            name: server.name,
+            host: server.endpoint,
+            port: "443",
+            username: server.username,
+            authenticationMode: .password,
+            privateKeyPath: "",
+            publicKeyPath: "",
+            password: "secret",
+            clearsSavedPassword: false,
+            connectionKind: .cloud,
+            addressPreference: .automatic,
+            s3Region: "us-east-1",
+            defaultLocalDirectoryPath: "",
+            defaultRemotePath: "/bucket"
+        )
+
+        let services = TransmitWorkspaceState.defaultRemoteSessionFactory(server, draft, LocalFileBrowserService())
+
+        #expect(services.client is LibraryBackedS3RemoteClient)
+    }
+
+    @Test func s3SessionListsBucketsAndDirectoryContents() async throws {
+        let handlerID = UUID().uuidString
+        MockS3URLProtocol.setHandler(id: handlerID) { request in
+            if request.httpMethod == "GET", request.url?.path == "/" {
+                return MockS3URLResponse(
+                    statusCode: 200,
+                    headers: ["Content-Type": "application/xml"],
+                    body: """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <ListAllMyBucketsResult>
+                      <Buckets>
+                        <Bucket>
+                          <Name>photos</Name>
+                          <CreationDate>2026-04-19T08:00:00Z</CreationDate>
+                        </Bucket>
+                      </Buckets>
+                    </ListAllMyBucketsResult>
+                    """.data(using: .utf8)!
+                )
+            }
+
+            if request.httpMethod == "GET",
+               request.url?.path == "/photos",
+               request.url?.query?.contains("list-type=2") == true {
+                return MockS3URLResponse(
+                    statusCode: 200,
+                    headers: ["Content-Type": "application/xml"],
+                    body: """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <ListBucketResult>
+                      <Name>photos</Name>
+                      <Prefix>albums/</Prefix>
+                      <KeyCount>2</KeyCount>
+                      <MaxKeys>1000</MaxKeys>
+                      <Delimiter>/</Delimiter>
+                      <IsTruncated>false</IsTruncated>
+                      <CommonPrefixes>
+                        <Prefix>albums/2026/</Prefix>
+                      </CommonPrefixes>
+                      <Contents>
+                        <Key>albums/cover.jpg</Key>
+                        <LastModified>2026-04-19T08:01:00Z</LastModified>
+                        <Size>1234</Size>
+                      </Contents>
+                    </ListBucketResult>
+                    """.data(using: .utf8)!
+                )
+            }
+
+            throw NSError(domain: "MockS3URLProtocol", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Unexpected request: \(request.httpMethod ?? "") \(request.url?.absoluteString ?? "")"
+            ])
+        }
+        defer { MockS3URLProtocol.removeHandler(id: handlerID) }
+
+        let session = makeMockedS3Session(handlerID: handlerID)
+
+        let root = try session.loadDirectorySnapshot(
+            in: RemoteLocation(id: "/", path: "s3://mock/", remotePath: "/", directoryURL: nil)
+        )
+        #expect(root.items.map(\.name) == ["photos"])
+        #expect(root.items.first?.isDirectory == true)
+
+        let photos = try session.loadDirectorySnapshot(
+            in: RemoteLocation(id: "/photos/albums", path: "s3://mock/photos/albums", remotePath: "/photos/albums", directoryURL: nil)
+        )
+        #expect(photos.items.count == 2)
+        #expect(photos.items.contains(where: { $0.name == "2026" && $0.isDirectory }))
+        #expect(photos.items.contains(where: { $0.name == "cover.jpg" && !$0.isDirectory }))
+    }
+
+    @Test func s3SessionUploadsAndDownloadsObjects() async throws {
+        let uploadedBody = Locked(Data())
+        let handlerID = UUID().uuidString
+        MockS3URLProtocol.setHandler(id: handlerID) { request in
+            if request.httpMethod == "PUT",
+               request.url?.path.hasSuffix("/bucket/folder/greeting.txt") == true {
+                uploadedBody.set(try readRequestBody(from: request))
+                return MockS3URLResponse(statusCode: 200, headers: [:], body: Data())
+            }
+
+            if request.httpMethod == "GET",
+               request.url?.path.hasSuffix("/bucket/folder/greeting.txt") == true {
+                return MockS3URLResponse(
+                    statusCode: 200,
+                    headers: ["Content-Length": "11"],
+                    body: Data("hello world".utf8)
+                )
+            }
+
+            throw NSError(domain: "MockS3URLProtocol", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Unexpected request: \(request.httpMethod ?? "") \(request.url?.absoluteString ?? "")"
+            ])
+        }
+        defer { MockS3URLProtocol.removeHandler(id: handlerID) }
+
+        let session = makeMockedS3Session(handlerID: handlerID)
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceURL = baseURL.appendingPathComponent("greeting.txt")
+        let destinationURL = baseURL.appendingPathComponent("downloaded.txt")
+        var uploadSnapshots: [TransferProgressSnapshot] = []
+        var downloadSnapshots: [TransferProgressSnapshot] = []
+
+        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+        try Data("hello world".utf8).write(to: sourceURL)
+
+        try session.uploadObject(
+            at: sourceURL,
+            bucket: "bucket",
+            key: "folder/greeting.txt",
+            progress: { uploadSnapshots.append($0) },
+            isCancelled: { false }
+        )
+
+        try session.downloadObject(
+            bucket: "bucket",
+            key: "folder/greeting.txt",
+            to: destinationURL,
+            progress: { downloadSnapshots.append($0) },
+            isCancelled: { false }
+        )
+
+        #expect(uploadedBody.value == Data("hello world".utf8))
+        #expect((try Data(contentsOf: destinationURL)) == Data("hello world".utf8))
+        #expect(uploadSnapshots.last?.completedByteCount == 11)
+        #expect(downloadSnapshots.last?.completedByteCount == 11)
+
+        try? FileManager.default.removeItem(at: baseURL)
+    }
+
+    @Test func s3BucketEndpointListsAndUploadsUsingBucketScopedPaths() async throws {
+        let uploadedBody = Locked(Data())
+        let handlerID = UUID().uuidString
+        MockS3URLProtocol.setHandler(id: handlerID) { request in
+            if request.httpMethod == "GET",
+               request.url?.host == "bucket.s3.example.com",
+               request.url?.path == "/",
+               request.url?.query?.contains("list-type=2") == true {
+                return MockS3URLResponse(
+                    statusCode: 200,
+                    headers: ["Content-Type": "application/xml"],
+                    body: """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <ListBucketResult>
+                      <Name>bucket</Name>
+                      <Prefix></Prefix>
+                      <KeyCount>2</KeyCount>
+                      <MaxKeys>1000</MaxKeys>
+                      <Delimiter>/</Delimiter>
+                      <IsTruncated>false</IsTruncated>
+                      <CommonPrefixes>
+                        <Prefix>docs/</Prefix>
+                      </CommonPrefixes>
+                      <Contents>
+                        <Key>hello.txt</Key>
+                        <LastModified>2026-04-19T08:01:00Z</LastModified>
+                        <Size>5</Size>
+                      </Contents>
+                    </ListBucketResult>
+                    """.data(using: .utf8)!
+                )
+            }
+
+            if request.httpMethod == "PUT",
+               request.url?.host == "bucket.s3.example.com",
+               request.url?.path == "/upload.txt" {
+                uploadedBody.set(try readRequestBody(from: request))
+                return MockS3URLResponse(statusCode: 200, headers: [:], body: Data())
+            }
+
+            throw NSError(domain: "MockS3URLProtocol", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Unexpected request: \(request.httpMethod ?? "") \(request.url?.absoluteString ?? "")"
+            ])
+        }
+        defer { MockS3URLProtocol.removeHandler(id: handlerID) }
+
+        let session = makeMockedS3Session(
+            handlerID: handlerID,
+            host: "https://bucket.s3.example.com"
+        )
+        let client = LibraryBackedS3RemoteClient(
+            config: RemoteConnectionConfig(
+                connectionKind: .cloud,
+                host: "https://bucket.s3.example.com",
+                port: 443,
+                username: "access",
+                authenticationMode: .password,
+                privateKeyPath: nil,
+                publicKeyPath: nil,
+                password: "secret",
+                addressPreference: .automatic
+            ),
+            transport: session
+        )
+
+        let root = try client.loadDirectorySnapshot(
+            in: RemoteLocation(id: "/", path: "s3://bucket.s3.example.com/", remotePath: "/", directoryURL: nil)
+        )
+        #expect(root.items.contains(where: { $0.name == "docs" && $0.isDirectory }))
+        #expect(root.items.contains(where: { $0.name == "hello.txt" && !$0.isDirectory }))
+
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceURL = baseURL.appendingPathComponent("upload.txt")
+
+        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: sourceURL)
+
+        _ = try client.uploadItem(
+            at: sourceURL,
+            to: client.makeInitialLocation(relativeTo: baseURL),
+            conflictPolicy: .overwrite,
+            progress: nil,
+            isCancelled: { false }
+        )
+
+        #expect(uploadedBody.value == Data("hello".utf8))
+
+        try? FileManager.default.removeItem(at: baseURL)
+    }
+
     @Test func runningUploadCanBePausedAndResumed() async throws {
         let baseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -2557,6 +2814,61 @@ struct TransmitTests {
     }
 }
 
+private func makeMockedS3Session(
+    handlerID: String,
+    host: String = "https://mock-s3.example.com"
+) -> S3HTTPSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MockS3URLProtocol.self]
+    configuration.httpAdditionalHeaders = ["X-Mock-S3-Handler-ID": handlerID]
+    return S3HTTPSession(
+        config: RemoteConnectionConfig(
+            connectionKind: .cloud,
+            host: host,
+            port: 443,
+            username: "access",
+            authenticationMode: .password,
+            privateKeyPath: nil,
+            publicKeyPath: nil,
+            password: "secret",
+            addressPreference: .automatic
+        ),
+        urlSessionConfiguration: configuration,
+        now: { Date(timeIntervalSince1970: 1_713_513_600) }
+    )
+}
+
+private func readRequestBody(from request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return Data()
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    let bufferSize = 16 * 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+
+    while stream.hasBytesAvailable {
+        let count = stream.read(buffer, maxLength: bufferSize)
+        if count < 0 {
+            throw stream.streamError ?? NSError(domain: "MockS3URLProtocol", code: 2)
+        }
+        if count == 0 {
+            break
+        }
+        data.append(buffer, count: count)
+    }
+
+    return data
+}
+
 private final class Locked<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: Value
@@ -2576,6 +2888,65 @@ private final class Locked<Value>: @unchecked Sendable {
         storage = value
         lock.unlock()
     }
+
+    func mutate(_ update: (inout Value) -> Void) {
+        lock.lock()
+        update(&storage)
+        lock.unlock()
+    }
+}
+
+private struct MockS3URLResponse {
+    let statusCode: Int
+    let headers: [String: String]
+    let body: Data
+}
+
+private final class MockS3URLProtocol: URLProtocol {
+    private static let handlerHeader = "X-Mock-S3-Handler-ID"
+    private static let handlers = Locked([String: (URLRequest) throws -> MockS3URLResponse]())
+
+    static func setHandler(id: String, _ handler: @escaping (URLRequest) throws -> MockS3URLResponse) {
+        handlers.mutate { $0[id] = handler }
+    }
+
+    static func removeHandler(id: String) {
+        handlers.mutate { $0[id] = nil }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.value(forHTTPHeaderField: handlerHeader) != nil
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handlerID = request.value(forHTTPHeaderField: Self.handlerHeader),
+              let handler = Self.handlers.value[handlerID]
+        else {
+            client?.urlProtocol(self, didFailWithError: NSError(domain: "MockS3URLProtocol", code: 1))
+            return
+        }
+
+        do {
+            let response = try handler(request)
+            let httpResponse = HTTPURLResponse(
+                url: request.url!,
+                statusCode: response.statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: response.headers
+            )!
+            client?.urlProtocol(self, didReceive: httpResponse, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: response.body)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private struct ProgressReportingRemoteClient: RemoteClient {

@@ -321,6 +321,24 @@
         }
       }
     },
+    "A secret key is currently loaded from Keychain for this site." : {
+
+    },
+    "A secret key is saved in Keychain and will be kept unless you clear it." : {
+
+    },
+    "Access Key" : {
+
+    },
+    "Access key + secret key" : {
+
+    },
+    "Access key ID used to sign S3 requests." : {
+
+    },
+    "Access key not set" : {
+
+    },
     "Actions" : {
       "localizations" : {
         "en" : {
@@ -545,6 +563,9 @@
         }
       }
     },
+    "AWS signing region for this S3-compatible endpoint. Change this if the server rejects signatures for us-east-1." : {
+
+    },
     "Cancel" : {
       "localizations" : {
         "en" : {
@@ -637,6 +658,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂停期间已取消。"
+          }
+        }
+      }
+    },
+    "Choose a private key file to enable SSH key login." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a private key file to enable SSH key login."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择私钥文件以启用 SSH 密钥登录。"
           }
         }
       }
@@ -804,6 +841,9 @@
         }
       }
     },
+    "Clear Saved Secret Key" : {
+
+    },
     "Close folder creation without making changes." : {
       "localizations" : {
         "en" : {
@@ -853,6 +893,7 @@
       }
     },
     "CLOUD" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1412,6 +1453,9 @@
           }
         }
       }
+    },
+    "Credentials" : {
+
     },
     "Current" : {
       "localizations" : {
@@ -2389,6 +2433,22 @@
         }
       }
     },
+    "Key Passphrase" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Key Passphrase"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "密钥口令"
+          }
+        }
+      }
+    },
     "Keys" : {
       "localizations" : {
         "en" : {
@@ -2694,6 +2754,9 @@
         }
       }
     },
+    "No secret key is currently saved for this site." : {
+
+    },
     "No transfer activity yet." : {
       "localizations" : {
         "en" : {
@@ -2706,6 +2769,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂无传输活动。"
+          }
+        }
+      }
+    },
+    "Not saved" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未保存"
           }
         }
       }
@@ -2838,6 +2917,38 @@
         }
       }
     },
+    "Optional matching public key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional matching public key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可选的匹配公钥"
+          }
+        }
+      }
+    },
+    "Optional passphrase used to unlock the selected private key." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional passphrase used to unlock the selected private key."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用于解锁所选私钥的可选口令。"
+          }
+        }
+      }
+    },
     "Optional remote folder" : {
       "localizations" : {
         "en" : {
@@ -2914,358 +3025,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "远程账户的密码。使用密钥认证时可留空。"
-          }
-        }
-      }
-    },
-    "Key Passphrase" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Key Passphrase"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "密钥口令"
-          }
-        }
-      }
-    },
-    "Not saved" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not saved"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未保存"
-          }
-        }
-      }
-    },
-    "Optional matching public key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Optional matching public key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可选的匹配公钥"
-          }
-        }
-      }
-    },
-    "Optional passphrase used to unlock the selected private key." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Optional passphrase used to unlock the selected private key."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "用于解锁所选私钥的可选口令。"
-          }
-        }
-      }
-    },
-    "Private Key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Private Key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "私钥"
-          }
-        }
-      }
-    },
-    "Public Key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Public Key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "公钥"
-          }
-        }
-      }
-    },
-    "Quick Connect draft is open in the configuration sheet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quick Connect draft is open in the configuration sheet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "快速连接草稿当前已在配置面板中打开。"
-          }
-        }
-      }
-    },
-    "Remove the saved key passphrase for this site from Keychain." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove the saved key passphrase for this site from Keychain."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "从钥匙串中移除此站点已保存的密钥口令。"
-          }
-        }
-      }
-    },
-    "Required .pem or OpenSSH private key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Required .pem or OpenSSH private key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "必填 .pem 或 OpenSSH 私钥"
-          }
-        }
-      }
-    },
-    "SSH Key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH Key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH 密钥"
-          }
-        }
-      }
-    },
-    "SSH key" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH key"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH 密钥"
-          }
-        }
-      }
-    },
-    "SSH key + passphrase" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH key + passphrase"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH 密钥 + 口令"
-          }
-        }
-      }
-    },
-    "SSH key not set" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH key not set"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未设置 SSH 密钥"
-          }
-        }
-      }
-    },
-    "Saved in Keychain" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved in Keychain"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已保存在钥匙串中"
-          }
-        }
-      }
-    },
-    "Saved site draft is open in the configuration sheet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved site draft is open in the configuration sheet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已保存站点的草稿当前已在配置面板中打开。"
-          }
-        }
-      }
-    },
-    "Select a PEM or OpenSSH private key file for this SFTP host." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select a PEM or OpenSSH private key file for this SFTP host."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为此 SFTP 主机选择一个 PEM 或 OpenSSH 私钥文件。"
-          }
-        }
-      }
-    },
-    "Select the matching public key file when you want to keep the key pair recorded with this site." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select the matching public key file when you want to keep the key pair recorded with this site."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "如果你希望在此站点中记录这组密钥，请选择对应的公钥文件。"
-          }
-        }
-      }
-    },
-    "The selected SSH key will be used for passwordless login." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The selected SSH key will be used for passwordless login."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接时将使用所选 SSH 密钥进行免密登录。"
-          }
-        }
-      }
-    },
-    "The selected SSH key will use the provided passphrase when connecting." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The selected SSH key will use the provided passphrase when connecting."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接时将使用所填口令解锁所选 SSH 密钥。"
-          }
-        }
-      }
-    },
-    "Typed in draft" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Typed in draft"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "草稿中已填写"
-          }
-        }
-      }
-    },
-    "Will clear saved password" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Will clear saved password"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将清除已保存密码"
-          }
-        }
-      }
-    },
-    "Choose a private key file to enable SSH key login." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a private key file to enable SSH key login."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请选择私钥文件以启用 SSH 密钥登录。"
           }
         }
       }
@@ -3494,6 +3253,22 @@
         }
       }
     },
+    "Private Key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "私钥"
+          }
+        }
+      }
+    },
     "Protocol" : {
       "localizations" : {
         "en" : {
@@ -3522,6 +3297,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此已保存站点使用的协议。"
+          }
+        }
+      }
+    },
+    "Public Key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Public Key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公钥"
           }
         }
       }
@@ -3574,6 +3365,22 @@
         }
       }
     },
+    "Quick Connect draft is open in the configuration sheet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Connect draft is open in the configuration sheet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快速连接草稿当前已在配置面板中打开。"
+          }
+        }
+      }
+    },
     "Recent activity" : {
       "localizations" : {
         "en" : {
@@ -3621,6 +3428,9 @@
           }
         }
       }
+    },
+    "Region" : {
+
     },
     "Remote" : {
       "localizations" : {
@@ -3818,6 +3628,22 @@
         }
       }
     },
+    "Remove the saved key passphrase for this site from Keychain." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the saved key passphrase for this site from Keychain."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从钥匙串中移除此站点已保存的密钥口令。"
+          }
+        }
+      }
+    },
     "Remove the stored password for this saved site from Keychain." : {
       "localizations" : {
         "en" : {
@@ -3833,6 +3659,9 @@
           }
         }
       }
+    },
+    "Remove the stored secret key for this saved S3 site from Keychain." : {
+
     },
     "Removed %@ from Favorites." : {
       "localizations" : {
@@ -4010,6 +3839,22 @@
         }
       }
     },
+    "Required .pem or OpenSSH private key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Required .pem or OpenSSH private key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "必填 .pem 或 OpenSSH 私钥"
+          }
+        }
+      }
+    },
     "Resume" : {
       "localizations" : {
         "en" : {
@@ -4138,6 +3983,12 @@
         }
       }
     },
+    "S3-Compatible" : {
+
+    },
+    "S3-compatible endpoint URL or bucket endpoint. Examples: https://s3.example.com or https://bucket.s3.example.com" : {
+
+    },
     "Save" : {
       "localizations" : {
         "en" : {
@@ -4218,6 +4069,22 @@
         }
       }
     },
+    "Saved in Keychain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved in Keychain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存在钥匙串中"
+          }
+        }
+      }
+    },
     "Saved password will be removed when you save this site." : {
       "localizations" : {
         "en" : {
@@ -4233,6 +4100,9 @@
           }
         }
       }
+    },
+    "Saved secret key will be removed when you save this site." : {
+
     },
     "Saved site %@." : {
       "localizations" : {
@@ -4265,6 +4135,34 @@
           }
         }
       }
+    },
+    "Saved site draft is open in the configuration sheet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved site draft is open in the configuration sheet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存站点的草稿当前已在配置面板中打开。"
+          }
+        }
+      }
+    },
+    "Secret access key used to sign S3 requests." : {
+
+    },
+    "Secret Key" : {
+
+    },
+    "Secret key not saved" : {
+
+    },
+    "Secret key saved in Keychain" : {
+
     },
     "Select a file or folder to inspect metadata and transfer context." : {
       "localizations" : {
@@ -4310,6 +4208,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择连接后自动打开的本地文件夹。"
+          }
+        }
+      }
+    },
+    "Select a PEM or OpenSSH private key file for this SFTP host." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a PEM or OpenSSH private key file for this SFTP host."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为此 SFTP 主机选择一个 PEM 或 OpenSSH 私钥文件。"
+          }
+        }
+      }
+    },
+    "Select the matching public key file when you want to keep the key pair recorded with this site." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select the matching public key file when you want to keep the key pair recorded with this site."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果你希望在此站点中记录这组密钥，请选择对应的公钥文件。"
           }
         }
       }
@@ -4571,6 +4501,70 @@
         }
       }
     },
+    "SSH key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH 密钥"
+          }
+        }
+      }
+    },
+    "SSH Key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH Key"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH 密钥"
+          }
+        }
+      }
+    },
+    "SSH key + passphrase" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH key + passphrase"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH 密钥 + 口令"
+          }
+        }
+      }
+    },
+    "SSH key not set" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH key not set"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未设置 SSH 密钥"
+          }
+        }
+      }
+    },
     "Start a remote connection with the current form values." : {
       "localizations" : {
         "en" : {
@@ -4615,6 +4609,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "目标位置 %3$@ 中已包含 %1$@%2$@。"
+          }
+        }
+      }
+    },
+    "The selected SSH key will be used for passwordless login." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The selected SSH key will be used for passwordless login."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接时将使用所选 SSH 密钥进行免密登录。"
+          }
+        }
+      }
+    },
+    "The selected SSH key will use the provided passphrase when connecting." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The selected SSH key will use the provided passphrase when connecting."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接时将使用所填口令解锁所选 SSH 密钥。"
           }
         }
       }
@@ -4759,6 +4785,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "传输"
+          }
+        }
+      }
+    },
+    "Typed in draft" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typed in draft"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草稿中已填写"
           }
         }
       }
@@ -5020,6 +5062,9 @@
         }
       }
     },
+    "us-east-1" : {
+
+    },
     "Use Current" : {
       "localizations" : {
         "en" : {
@@ -5147,6 +5192,25 @@
           }
         }
       }
+    },
+    "Will clear saved password" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Will clear saved password"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将清除已保存密码"
+          }
+        }
+      }
+    },
+    "Will clear saved secret key" : {
+
     },
     "Workspace" : {
       "localizations" : {

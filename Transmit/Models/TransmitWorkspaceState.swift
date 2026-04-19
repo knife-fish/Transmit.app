@@ -14,6 +14,7 @@ struct ServerProfile: Identifiable, Hashable {
     let privateKeyPath: String?
     let publicKeyPath: String?
     let addressPreference: ConnectionAddressPreference
+    let s3Region: String?
     let defaultLocalDirectoryPath: String?
     let defaultRemotePath: String?
     let systemImage: String
@@ -30,6 +31,7 @@ struct ServerProfile: Identifiable, Hashable {
         privateKeyPath: String? = nil,
         publicKeyPath: String? = nil,
         addressPreference: ConnectionAddressPreference = .automatic,
+        s3Region: String? = nil,
         defaultLocalDirectoryPath: String? = nil,
         defaultRemotePath: String? = nil,
         systemImage: String,
@@ -45,6 +47,7 @@ struct ServerProfile: Identifiable, Hashable {
         self.privateKeyPath = privateKeyPath
         self.publicKeyPath = publicKeyPath
         self.addressPreference = addressPreference
+        self.s3Region = s3Region
         self.defaultLocalDirectoryPath = defaultLocalDirectoryPath
         self.defaultRemotePath = defaultRemotePath
         self.systemImage = systemImage
@@ -85,7 +88,7 @@ enum ConnectionKind: String, Hashable, CaseIterable, Codable {
         case .webdav:
             return String(localized: "WEBDAV")
         case .cloud:
-            return String(localized: "CLOUD")
+            return String(localized: "S3-Compatible")
         }
     }
 }
@@ -427,6 +430,7 @@ struct ConnectionDraft: Equatable {
     var clearsSavedPassword: Bool
     var connectionKind: ConnectionKind
     var addressPreference: ConnectionAddressPreference
+    var s3Region: String
     var defaultLocalDirectoryPath: String
     var defaultRemotePath: String
 
@@ -443,6 +447,7 @@ struct ConnectionDraft: Equatable {
             clearsSavedPassword: false,
             connectionKind: server?.connectionKind ?? .sftp,
             addressPreference: server?.addressPreference ?? .automatic,
+            s3Region: server?.s3Region ?? "us-east-1",
             defaultLocalDirectoryPath: server?.defaultLocalDirectoryPath ?? "",
             defaultRemotePath: server?.defaultRemotePath ?? ""
         )
@@ -1446,6 +1451,7 @@ final class TransmitWorkspaceState: ObservableObject {
             privateKeyPath: normalizedKeyDraftPath(connectionDraft.privateKeyPath),
             publicKeyPath: normalizedKeyDraftPath(connectionDraft.publicKeyPath),
             addressPreference: connectionDraft.addressPreference,
+            s3Region: normalizedS3RegionDraft(connectionDraft.s3Region),
             defaultLocalDirectoryPath: normalizedLocalDirectoryDraftPath(connectionDraft.defaultLocalDirectoryPath),
             defaultRemotePath: normalizedRemoteDirectoryDraftPath(connectionDraft.defaultRemotePath),
             systemImage: systemImage(for: connectionDraft.connectionKind),
@@ -2073,6 +2079,7 @@ final class TransmitWorkspaceState: ObservableObject {
                 privateKeyPath: normalizedKeyDraftPath(connectionDraft.privateKeyPath),
                 publicKeyPath: normalizedKeyDraftPath(connectionDraft.publicKeyPath),
                 addressPreference: connectionDraft.addressPreference,
+                s3Region: normalizedS3RegionDraft(connectionDraft.s3Region),
                 defaultLocalDirectoryPath: normalizedLocalDirectoryDraftPath(connectionDraft.defaultLocalDirectoryPath),
                 defaultRemotePath: normalizedRemoteDirectoryDraftPath(connectionDraft.defaultRemotePath),
                 systemImage: systemImage(for: connectionDraft.connectionKind),
@@ -2093,6 +2100,7 @@ final class TransmitWorkspaceState: ObservableObject {
             privateKeyPath: normalizedKeyDraftPath(connectionDraft.privateKeyPath),
             publicKeyPath: normalizedKeyDraftPath(connectionDraft.publicKeyPath),
             addressPreference: connectionDraft.addressPreference,
+            s3Region: normalizedS3RegionDraft(connectionDraft.s3Region),
             defaultLocalDirectoryPath: normalizedLocalDirectoryDraftPath(connectionDraft.defaultLocalDirectoryPath),
             defaultRemotePath: normalizedRemoteDirectoryDraftPath(connectionDraft.defaultRemotePath),
             systemImage: systemImage(for: connectionDraft.connectionKind),
@@ -2132,6 +2140,12 @@ final class TransmitWorkspaceState: ObservableObject {
         let standardized = NSString(string: trimmed).standardizingPath
         guard !standardized.isEmpty, standardized != "." else { return "/" }
         return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func normalizedS3RegionDraft(_ region: String) -> String? {
+        let trimmed = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private func recordSuccessfulConnection(for server: ServerProfile, summary: String) {
@@ -3641,21 +3655,41 @@ extension TransmitWorkspaceState {
     static let defaultRemoteSessionFactory: RemoteSessionFactory = { server, draft, localFileBrowser in
         switch server.connectionKind {
         case .sftp:
-                let config = RemoteConnectionConfig(
-                    connectionKind: .sftp,
-                    host: draft.host,
-                    port: Int(draft.port) ?? server.port,
-                    username: draft.username,
-                    authenticationMode: draft.authenticationMode,
-                    privateKeyPath: draft.privateKeyPath.isEmpty ? nil : draft.privateKeyPath,
-                    publicKeyPath: draft.publicKeyPath.isEmpty ? nil : draft.publicKeyPath,
-                    password: draft.password.isEmpty ? nil : draft.password,
-                    addressPreference: draft.addressPreference
+            let config = RemoteConnectionConfig(
+                connectionKind: .sftp,
+                host: draft.host,
+                port: Int(draft.port) ?? server.port,
+                username: draft.username,
+                authenticationMode: draft.authenticationMode,
+                privateKeyPath: draft.privateKeyPath.isEmpty ? nil : draft.privateKeyPath,
+                publicKeyPath: draft.publicKeyPath.isEmpty ? nil : draft.publicKeyPath,
+                password: draft.password.isEmpty ? nil : draft.password,
+                addressPreference: draft.addressPreference,
+                s3Region: nil
             )
             return RemoteSessionServices(
                 client: LibraryBackedSFTPRemoteClient(config: config)
             )
-        case .webdav, .cloud:
+        case .cloud:
+            let config = RemoteConnectionConfig(
+                connectionKind: .cloud,
+                host: draft.host,
+                port: Int(draft.port) ?? server.port,
+                username: draft.username,
+                authenticationMode: .password,
+                privateKeyPath: nil,
+                publicKeyPath: nil,
+                password: draft.password.isEmpty ? nil : draft.password,
+                addressPreference: draft.addressPreference,
+                s3Region: {
+                    let trimmed = draft.s3Region.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : trimmed
+                }()
+            )
+            return RemoteSessionServices(
+                client: LibraryBackedS3RemoteClient(config: config)
+            )
+        case .webdav:
             return RemoteSessionServices(
                 client: MockRemoteClient(localFileBrowser: localFileBrowser, displayHost: draft.host.isEmpty ? server.endpoint : draft.host)
             )

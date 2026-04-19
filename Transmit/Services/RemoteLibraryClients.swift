@@ -241,6 +241,1478 @@ struct LibraryBackedSFTPRemoteClient: RemoteClient {
     }
 }
 
+struct LibraryBackedS3RemoteClient: RemoteClient {
+    private let config: RemoteConnectionConfig
+    private let transport: S3HTTPSession
+
+    init(
+        config: RemoteConnectionConfig,
+        transport: S3HTTPSession? = nil
+    ) {
+        self.config = config
+        self.transport = transport ?? S3HTTPSession(config: config)
+    }
+
+    func makeInitialLocation(relativeTo localDirectoryURL: URL) -> RemoteLocation {
+        makeRemoteLocation(path: "/")
+    }
+
+    func makeLocation(for directoryURL: URL) -> RemoteLocation {
+        makeRemoteLocation(path: directoryURL.path(percentEncoded: false))
+    }
+
+    func parentLocation(of location: RemoteLocation) -> RemoteLocation? {
+        guard location.remotePath != "/" else { return nil }
+        let parent = (location.remotePath as NSString).deletingLastPathComponent
+        return makeRemoteLocation(path: parent.isEmpty ? "/" : parent)
+    }
+
+    func location(for item: BrowserItem, from currentLocation: RemoteLocation) -> RemoteLocation? {
+        guard item.isDirectory else { return nil }
+        return makeRemoteLocation(path: item.pathDescription)
+    }
+
+    func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
+        let snapshot = try transport.loadDirectorySnapshot(in: location)
+        let sortedItems = snapshot.items.sorted { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory && !rhs.isDirectory
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        return RemoteDirectorySnapshot(
+            location: makeRemoteLocation(path: snapshot.location.remotePath),
+            items: sortedItems,
+            homePath: snapshot.homePath
+        )
+    }
+
+    func destinationDirectoryURL(for location: RemoteLocation) -> URL? {
+        nil
+    }
+
+    func uploadItem(
+        at localURL: URL,
+        to remoteLocation: RemoteLocation,
+        conflictPolicy: TransferConflictPolicy,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws -> RemoteUploadResult {
+        let resourceValues = try localURL.resourceValues(forKeys: [.isDirectoryKey])
+        if resourceValues.isDirectory == true {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+
+        let destinationName = try resolvedRemoteName(
+            proposedName: localURL.lastPathComponent,
+            in: remoteLocation,
+            conflictPolicy: conflictPolicy
+        )
+        let destinationPath = join(remotePath: remoteLocation.remotePath, name: destinationName)
+        let object = try transport.resolveObjectReference(for: destinationPath)
+        try transport.uploadObject(
+            at: localURL,
+            bucket: object.bucket,
+            key: object.key,
+            progress: progress,
+            isCancelled: isCancelled
+        )
+        return RemoteUploadResult(
+            remoteItemID: destinationPath,
+            destinationName: destinationName,
+            renamedForConflict: destinationName != localURL.lastPathComponent
+        )
+    }
+
+    func downloadItem(
+        named name: String,
+        at remotePath: String,
+        toDirectory localDirectoryURL: URL,
+        localFileTransfer: LocalFileTransferService,
+        conflictPolicy: TransferConflictPolicy,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws -> LocalFileTransferResult {
+        let destinationURL = try localFileTransfer.destinationURL(
+            forProposedName: name,
+            in: localDirectoryURL,
+            conflictPolicy: conflictPolicy
+        )
+        if conflictPolicy == .overwrite, FileManager.default.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+            try localFileTransfer.deleteItem(at: destinationURL)
+        }
+
+        let object = try transport.resolveObjectReference(for: remotePath)
+        try transport.downloadObject(
+            bucket: object.bucket,
+            key: object.key,
+            to: destinationURL,
+            progress: progress,
+            isCancelled: isCancelled
+        )
+        return LocalFileTransferResult(
+            sourceURL: URL(fileURLWithPath: remotePath),
+            destinationURL: destinationURL,
+            renamedForConflict: destinationURL.lastPathComponent != name
+        )
+    }
+
+    func createDirectory(named proposedName: String, in remoteLocation: RemoteLocation) throws -> RemoteMutationResult {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let destinationName = try makeUniqueRemoteName(proposedName: sanitizedName, in: remoteLocation)
+        let destinationPath = join(remotePath: remoteLocation.remotePath, name: destinationName)
+        let directory = try transport.resolveDirectoryReference(for: destinationPath, allowRootBucket: false)
+        try transport.createDirectory(bucket: directory.bucket, prefix: directory.prefix)
+        return RemoteMutationResult(
+            remoteItemID: destinationPath,
+            destinationName: destinationName
+        )
+    }
+
+    func renameItem(named originalName: String, at remotePath: String, to proposedName: String) throws -> RemoteMutationResult {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let parentPath = parentPath(for: remotePath)
+        let destinationPath = join(remotePath: parentPath, name: sanitizedName)
+        guard destinationPath != remotePath else {
+            return RemoteMutationResult(remoteItemID: remotePath, destinationName: sanitizedName)
+        }
+
+        let siblingItems = try loadItems(in: makeRemoteLocation(path: parentPath))
+        guard !siblingItems.contains(where: { $0.name == sanitizedName && $0.pathDescription != remotePath }) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        if remotePath.hasSuffix("/") {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+
+        let sourceDirectory = try transport.resolveDirectoryReferenceIfPossible(for: remotePath)
+        if let sourceDirectory, sourceDirectory.prefix != nil {
+            let destinationDirectory = try transport.resolveDirectoryReference(for: destinationPath, allowRootBucket: false)
+            try transport.renamePrefix(
+                bucket: sourceDirectory.bucket,
+                fromPrefix: sourceDirectory.prefix,
+                toPrefix: destinationDirectory.prefix
+            )
+        } else {
+            let sourceObject = try transport.resolveObjectReference(for: remotePath)
+            let destinationObject = try transport.resolveObjectReference(for: destinationPath)
+            try transport.renameObject(
+                bucket: sourceObject.bucket,
+                fromKey: sourceObject.key,
+                toKey: destinationObject.key
+            )
+        }
+
+        return RemoteMutationResult(
+            remoteItemID: destinationPath,
+            destinationName: sanitizedName
+        )
+    }
+
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
+        if isDirectory {
+            let directory = try transport.resolveDirectoryReference(for: remotePath, allowRootBucket: true)
+            try transport.deletePrefix(bucket: directory.bucket, prefix: directory.prefix)
+        } else {
+            let object = try transport.resolveObjectReference(for: remotePath)
+            try transport.deleteObject(bucket: object.bucket, key: object.key)
+        }
+    }
+
+    private func makeRemoteLocation(path: String) -> RemoteLocation {
+        let normalizedPath = normalizedRemotePath(path)
+        return RemoteLocation(
+            id: normalizedPath,
+            path: "s3://\(config.normalizedHost)\(normalizedPath)",
+            remotePath: normalizedPath,
+            directoryURL: nil
+        )
+    }
+
+    private func normalizedRemotePath(_ path: String) -> String {
+        let standardized = NSString(string: path).standardizingPath
+        if standardized.isEmpty || standardized == "." {
+            return "/"
+        }
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func join(remotePath: String, name: String) -> String {
+        if remotePath == "/" {
+            return "/\(name)"
+        }
+        return "\(remotePath)/\(name)"
+    }
+
+    private func parentPath(for remotePath: String) -> String {
+        let parent = (remotePath as NSString).deletingLastPathComponent
+        if parent.isEmpty {
+            return "/"
+        }
+        return normalizedRemotePath(parent)
+    }
+
+    private func validateRemoteName(_ proposedName: String) throws -> String {
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != "..", !trimmed.contains("/") else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        return trimmed
+    }
+
+    private func makeUniqueRemoteName(proposedName: String, in remoteLocation: RemoteLocation) throws -> String {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let siblingNames = Set(try loadItems(in: remoteLocation).map(\.name))
+        guard siblingNames.contains(sanitizedName) else {
+            return sanitizedName
+        }
+
+        let pathExtension = URL(fileURLWithPath: sanitizedName).pathExtension
+        let baseName = pathExtension.isEmpty
+            ? sanitizedName
+            : String(sanitizedName.dropLast(pathExtension.count + 1))
+
+        var candidateIndex = 2
+        while true {
+            let candidateBase = "\(baseName) \(candidateIndex)"
+            let candidate = pathExtension.isEmpty
+                ? candidateBase
+                : "\(candidateBase).\(pathExtension)"
+            if !siblingNames.contains(candidate) {
+                return candidate
+            }
+            candidateIndex += 1
+        }
+    }
+
+    private func resolvedRemoteName(
+        proposedName: String,
+        in remoteLocation: RemoteLocation,
+        conflictPolicy: TransferConflictPolicy
+    ) throws -> String {
+        switch conflictPolicy {
+        case .rename:
+            return try makeUniqueRemoteName(proposedName: proposedName, in: remoteLocation)
+        case .overwrite:
+            return try validateRemoteName(proposedName)
+        }
+    }
+
+}
+
+final class S3HTTPSession: NSObject {
+    private static let requestTimeout: TimeInterval = 30
+    private static let fileTransferTimeout: TimeInterval = 600
+    private static let defaultRegion = "us-east-1"
+
+    private let config: RemoteConnectionConfig
+    private let endpointURL: URL
+    private let urlSessionConfiguration: URLSessionConfiguration
+    private let now: @Sendable () -> Date
+    private let lock = NSLock()
+    private var rootMode: S3RootMode
+    private var signingRegion: String
+
+    init(
+        config: RemoteConnectionConfig,
+        urlSessionConfiguration: URLSessionConfiguration = .ephemeral,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
+        self.config = config
+        self.endpointURL = try! config.resolvedHTTPEndpointURL()
+        self.urlSessionConfiguration = urlSessionConfiguration
+        self.now = now
+        self.rootMode = Self.initialRootMode(for: self.endpointURL)
+        self.signingRegion = config.s3Region?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? config.s3Region!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : Self.defaultRegion
+        super.init()
+    }
+
+    func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
+        let normalizedLocation = makeRemoteLocation(path: location.remotePath)
+        if normalizedLocation.remotePath == "/" {
+            switch try discoverRootListing() {
+            case .service(let buckets):
+                return RemoteDirectorySnapshot(
+                    location: normalizedLocation,
+                    items: buckets.map(makeBucketBrowserItem).sorted {
+                        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                    },
+                    homePath: "/"
+                )
+            case .bucket(let bucket, let response):
+                let items = makeBrowserItems(
+                    bucket: bucket,
+                    currentPrefix: nil,
+                    response: response,
+                    usesBucketScopedPaths: true
+                )
+                return RemoteDirectorySnapshot(
+                    location: normalizedLocation,
+                    items: items,
+                    homePath: "/"
+                )
+            }
+        }
+
+        let directory = try resolveDirectoryReference(for: normalizedLocation.remotePath, allowRootBucket: true)
+        let response = try listObjects(bucket: directory.bucket, prefix: directory.prefix, delimiter: "/")
+        let items = makeBrowserItems(
+            bucket: directory.bucket,
+            currentPrefix: directory.prefix,
+            response: response,
+            usesBucketScopedPaths: currentRootMode.isBucketScoped
+        )
+        return RemoteDirectorySnapshot(
+            location: normalizedLocation,
+            items: items,
+            homePath: "/"
+        )
+    }
+
+    func uploadObject(
+        at localURL: URL,
+        bucket: String,
+        key: String,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws {
+        let payloadHash = try sha256Hex(forFileAt: localURL)
+        let contentLength = try localFileByteCount(for: localURL)
+        progress?(.init(completedByteCount: 0, totalByteCount: contentLength))
+        var request = try signedRequest(
+            method: "PUT",
+            path: objectPath(bucket: bucket, key: key),
+            queryItems: [],
+            headers: [
+                "content-length": String(contentLength)
+            ],
+            payloadHash: payloadHash,
+            date: now()
+        )
+
+        let delegate = BlockingURLSessionDelegate(
+            progress: progress,
+            destinationURL: nil
+        )
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        request.httpMethod = "PUT"
+        let task = session.uploadTask(with: request, fromFile: localURL)
+        try runTask(
+            task,
+            delegate: delegate,
+            timeout: Self.fileTransferTimeout,
+            operationDescription: "Uploading \(localURL.lastPathComponent)",
+            isCancelled: isCancelled
+        )
+        progress?(.init(completedByteCount: contentLength, totalByteCount: contentLength))
+    }
+
+    func downloadObject(
+        bucket: String,
+        key: String,
+        to destinationURL: URL,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws {
+        let request = try signedRequest(
+            method: "GET",
+            path: objectPath(bucket: bucket, key: key),
+            queryItems: [],
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            date: now()
+        )
+
+        let delegate = BlockingURLSessionDelegate(
+            progress: progress,
+            destinationURL: destinationURL
+        )
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let task = session.downloadTask(with: request)
+        try runTask(
+            task,
+            delegate: delegate,
+            timeout: Self.fileTransferTimeout,
+            operationDescription: "Downloading \(destinationURL.lastPathComponent)",
+            isCancelled: isCancelled
+        )
+    }
+
+    func createDirectory(bucket: String, prefix: String?) throws {
+        guard let prefix else {
+            throw RemoteClientError.requestFailed(details: "S3 buckets are managed outside this app; create a folder inside an existing bucket.")
+        }
+
+        let key = prefix.hasSuffix("/") ? prefix : prefix + "/"
+        _ = try executeDataRequest(
+            method: "PUT",
+            path: objectPath(bucket: bucket, key: key),
+            queryItems: [],
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        )
+    }
+
+    func renameObject(bucket: String, fromKey: String, toKey: String) throws {
+        try copyObject(bucket: bucket, fromKey: fromKey, toKey: toKey)
+        try deleteObject(bucket: bucket, key: fromKey)
+    }
+
+    func renamePrefix(bucket: String, fromPrefix: String?, toPrefix: String?) throws {
+        let sourcePrefix = fromPrefix ?? ""
+        let destinationPrefix = toPrefix ?? ""
+        let objects = try listObjectsRecursively(bucket: bucket, prefix: sourcePrefix)
+        for object in objects where !object.key.isEmpty {
+            let suffix = object.key.dropFirst(sourcePrefix.count)
+            try copyObject(bucket: bucket, fromKey: object.key, toKey: destinationPrefix + suffix)
+        }
+        try deletePrefix(bucket: bucket, prefix: fromPrefix)
+    }
+
+    func deleteObject(bucket: String, key: String) throws {
+        _ = try executeDataRequest(
+            method: "DELETE",
+            path: objectPath(bucket: bucket, key: key),
+            queryItems: [],
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        )
+    }
+
+    func deletePrefix(bucket: String, prefix: String?) throws {
+        guard let prefix else {
+            throw RemoteClientError.requestFailed(details: "Bucket deletion is not supported from this app.")
+        }
+
+        let objects = try listObjectsRecursively(bucket: bucket, prefix: prefix)
+        for object in objects where !object.key.isEmpty {
+            try deleteObject(bucket: bucket, key: object.key)
+        }
+    }
+
+    func resolveDirectoryReference(
+        for remotePath: String,
+        allowRootBucket: Bool
+    ) throws -> (bucket: String, prefix: String?) {
+        let normalizedPath = normalizedRemotePath(remotePath)
+        switch currentRootMode {
+        case .bucket(let bucket):
+            if normalizedPath == "/" {
+                if allowRootBucket {
+                    return (bucket, nil)
+                }
+                throw RemoteClientError.requestFailed(details: "Choose a folder inside the bucket before creating a subfolder.")
+            }
+            let prefix = normalizedPath
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return (bucket, prefix.isEmpty ? nil : prefix + "/")
+        case .service:
+            guard normalizedPath != "/" else {
+                throw RemoteClientError.requestFailed(details: "Choose a bucket before creating a folder.")
+            }
+
+            let components = normalizedPath
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard let bucket = components.first, !bucket.isEmpty else {
+                throw RemoteClientError.requestFailed(details: "The S3 path is missing a bucket name.")
+            }
+
+            let remainder = Array(components.dropFirst())
+            guard !remainder.isEmpty else {
+                return (bucket, nil)
+            }
+            return (bucket, remainder.joined(separator: "/") + "/")
+        }
+    }
+
+    func resolveDirectoryReferenceIfPossible(for remotePath: String) throws -> (bucket: String, prefix: String?)? {
+        let normalizedPath = normalizedRemotePath(remotePath)
+        guard normalizedPath != "/" else { return nil }
+
+        switch currentRootMode {
+        case .bucket(let bucket):
+            let prefix = normalizedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !prefix.isEmpty else { return (bucket, nil) }
+            let leaf = (prefix as NSString).lastPathComponent
+            if leaf.contains(".") {
+                return nil
+            }
+            return (bucket, prefix + "/")
+        case .service:
+            let components = normalizedPath
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard let bucket = components.first, !bucket.isEmpty else {
+                return nil
+            }
+
+            let remainder = Array(components.dropFirst())
+            if remainder.isEmpty {
+                return (bucket, nil)
+            }
+
+            let leaf = remainder.last ?? ""
+            if leaf.contains(".") {
+                return nil
+            }
+            return (bucket, remainder.joined(separator: "/") + "/")
+        }
+    }
+
+    func resolveObjectReference(for remotePath: String) throws -> (bucket: String, key: String) {
+        let normalizedPath = normalizedRemotePath(remotePath)
+        switch currentRootMode {
+        case .bucket(let bucket):
+            let key = normalizedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !key.isEmpty else {
+                throw RemoteClientError.requestFailed(details: "The S3 object key is empty for the current bucket endpoint.")
+            }
+            return (bucket, key)
+        case .service:
+            let components = normalizedPath
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard components.count >= 2 else {
+                throw RemoteClientError.requestFailed(details: "The S3 object path must include both bucket and object key.")
+            }
+
+            let bucket = components[0]
+            let key = components.dropFirst().joined(separator: "/")
+            guard !bucket.isEmpty, !key.isEmpty else {
+                throw RemoteClientError.requestFailed(details: "The S3 object path is invalid.")
+            }
+            return (bucket, key)
+        }
+    }
+
+    private func listBuckets() throws -> [S3Bucket] {
+        let data = try executeDataRequest(
+            method: "GET",
+            path: "/",
+            queryItems: [],
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        ).data
+        return try S3ListBucketsXMLParser.parse(data: data)
+    }
+
+    private func discoverRootListing() throws -> S3RootListing {
+        let data = try executeDataRequest(
+            method: "GET",
+            path: "/",
+            queryItems: [URLQueryItem(name: "list-type", value: "2"), URLQueryItem(name: "delimiter", value: "/")],
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        ).data
+
+        let document = try XMLNodeDocument.parse(data: data)
+        switch document.root.name {
+        case "ListBucketResult":
+            let response = try S3ListObjectsXMLParser.parse(data: data)
+            let bucket = document.firstValue(named: "Name") ?? bucketNameFromEndpoint
+            guard let bucket, !bucket.isEmpty else {
+                throw RemoteClientError.requestFailed(details: "Connected to a bucket endpoint, but the bucket name could not be determined.")
+            }
+            setRootMode(.bucket(bucket))
+            return .bucket(bucket: bucket, response: response)
+        case "ListAllMyBucketsResult":
+            let buckets = try S3ListBucketsXMLParser.parse(data: data)
+            setRootMode(.service)
+            return .service(buckets)
+        default:
+            let buckets = try listBuckets()
+            setRootMode(.service)
+            return .service(buckets)
+        }
+    }
+
+    private func listObjects(bucket: String, prefix: String?, delimiter: String?) throws -> S3ListObjectsResponse {
+        var queryItems = [URLQueryItem(name: "list-type", value: "2")]
+        if let prefix {
+            queryItems.append(URLQueryItem(name: "prefix", value: prefix))
+        }
+        if let delimiter {
+            queryItems.append(URLQueryItem(name: "delimiter", value: delimiter))
+        }
+
+        let data = try executeDataRequest(
+            method: "GET",
+            path: requestPath(bucket: bucket),
+            queryItems: queryItems,
+            headers: [:],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        ).data
+        return try S3ListObjectsXMLParser.parse(data: data)
+    }
+
+    private func listObjectsRecursively(bucket: String, prefix: String?) throws -> [S3ObjectEntry] {
+        var objects: [S3ObjectEntry] = []
+        var continuationToken: String?
+
+        repeat {
+            var queryItems = [URLQueryItem(name: "list-type", value: "2")]
+            if let prefix {
+                queryItems.append(URLQueryItem(name: "prefix", value: prefix))
+            }
+            if let continuationToken {
+                queryItems.append(URLQueryItem(name: "continuation-token", value: continuationToken))
+            }
+
+            let data = try executeDataRequest(
+                method: "GET",
+                path: requestPath(bucket: bucket),
+                queryItems: queryItems,
+                headers: [:],
+                payloadHash: Self.emptyPayloadSHA256,
+                timeout: Self.requestTimeout
+            ).data
+            let response = try S3ListObjectsXMLParser.parse(data: data)
+            objects.append(contentsOf: response.objects)
+            continuationToken = response.isTruncated ? response.nextContinuationToken : nil
+        } while continuationToken != nil
+
+        return objects
+    }
+
+    private func copyObject(bucket: String, fromKey: String, toKey: String) throws {
+        _ = try executeDataRequest(
+            method: "PUT",
+            path: objectPath(bucket: bucket, key: toKey),
+            queryItems: [],
+            headers: [
+                "x-amz-copy-source": copySource(bucket: bucket, key: fromKey)
+            ],
+            payloadHash: Self.emptyPayloadSHA256,
+            timeout: Self.requestTimeout
+        )
+    }
+
+    private func executeDataRequest(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        headers: [String: String],
+        payloadHash: String,
+        timeout: TimeInterval
+    ) throws -> (data: Data, response: HTTPURLResponse) {
+        let request = try signedRequest(
+            method: method,
+            path: path,
+            queryItems: queryItems,
+            headers: headers,
+            payloadHash: payloadHash,
+            date: now()
+        )
+        let delegate = BlockingURLSessionDelegate(progress: nil, destinationURL: nil)
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let task = session.dataTask(with: request)
+        return try runTask(
+            task,
+            delegate: delegate,
+            timeout: timeout,
+            operationDescription: "\(method) \(path)",
+            isCancelled: nil
+        )
+    }
+
+    @discardableResult
+    private func runTask(
+        _ task: URLSessionTask,
+        delegate: BlockingURLSessionDelegate,
+        timeout: TimeInterval,
+        operationDescription: String,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws -> (data: Data, response: HTTPURLResponse) {
+        task.resume()
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            if isCancelled?() == true {
+                task.cancel()
+                throw CancellationError()
+            }
+
+            if delegate.completed {
+                break
+            }
+
+            if Date() >= deadline {
+                task.cancel()
+                throw RemoteClientError.operationTimedOut(operation: operationDescription, seconds: timeout)
+            }
+
+            _ = delegate.completionSemaphore.wait(timeout: .now() + 0.1)
+        }
+
+        if let error = delegate.error {
+            if error is CancellationError {
+                throw error
+            }
+            if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorCancelled {
+                throw CancellationError()
+            }
+            throw RemoteClientError.requestFailed(details: error.localizedDescription)
+        }
+
+        if let downloadError = delegate.downloadMoveError {
+            throw downloadError
+        }
+
+        guard let response = delegate.response as? HTTPURLResponse else {
+            throw RemoteClientError.requestFailed(details: "The S3 server returned an invalid HTTP response.")
+        }
+
+        guard (200...299).contains(response.statusCode) else {
+            let bodyText = String(data: delegate.receivedData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let details = bodyText?.isEmpty == false
+                ? bodyText!
+                : HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+            throw RemoteClientError.requestFailed(details: "S3 request failed (\(response.statusCode)): \(details)")
+        }
+
+        return (delegate.receivedData, response)
+    }
+
+    private func signedRequest(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        headers: [String: String],
+        payloadHash: String,
+        date: Date
+    ) throws -> URLRequest {
+        guard !config.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The Access Key field is empty.")
+        }
+        guard let secret = config.password, !secret.isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The Secret Key field is empty.")
+        }
+
+        var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false)
+        components?.percentEncodedPath = endpointURL.path + encodedPath(path)
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components?.url else {
+            throw RemoteClientError.requestFailed(details: "Failed to build the S3 request URL.")
+        }
+
+        let amzDate = Self.amzDateFormatter.string(from: date)
+        let dateStamp = Self.dateStampFormatter.string(from: date)
+        let hostHeader = signedHostHeader(for: endpointURL)
+
+        var signedHeaders = headers.reduce(into: [String: String]()) { partialResult, pair in
+            partialResult[pair.key.lowercased()] = pair.value
+        }
+        signedHeaders["host"] = hostHeader
+        signedHeaders["x-amz-content-sha256"] = payloadHash
+        signedHeaders["x-amz-date"] = amzDate
+
+        let authorization = try S3RequestSigner.sign(
+            method: method,
+            url: url,
+            headers: signedHeaders,
+            payloadHash: payloadHash,
+            accessKey: config.username,
+            secretKey: secret,
+            region: currentSigningRegion,
+            dateStamp: dateStamp,
+            amzDate: amzDate
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = Self.fileTransferTimeout
+        for (name, value) in signedHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private func makeRemoteLocation(path: String) -> RemoteLocation {
+        let normalizedPath = normalizedRemotePath(path)
+        return RemoteLocation(
+            id: normalizedPath,
+            path: "s3://\(config.normalizedHost)\(normalizedPath)",
+            remotePath: normalizedPath,
+            directoryURL: nil
+        )
+    }
+
+    private func normalizedRemotePath(_ path: String) -> String {
+        let standardized = NSString(string: path).standardizingPath
+        if standardized.isEmpty || standardized == "." {
+            return "/"
+        }
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func makeBucketBrowserItem(_ bucket: S3Bucket) -> BrowserItem {
+        let path = "/\(bucket.name)"
+        return BrowserItem(
+            id: path,
+            name: bucket.name,
+            kind: .folder,
+            byteCount: nil,
+            modifiedAt: bucket.createdAt,
+            sizeDescription: "--",
+            modifiedDescription: modifiedDescription(for: bucket.createdAt),
+            pathDescription: path,
+            url: nil
+        )
+    }
+
+    private func makeBrowserItems(
+        bucket: String,
+        currentPrefix: String?,
+        response: S3ListObjectsResponse,
+        usesBucketScopedPaths: Bool
+    ) -> [BrowserItem] {
+        let normalizedPrefix = currentPrefix ?? ""
+        let prefixItems = response.commonPrefixes.compactMap { prefix -> BrowserItem? in
+            let relativePrefix = prefix.hasPrefix(normalizedPrefix)
+                ? String(prefix.dropFirst(normalizedPrefix.count))
+                : prefix
+            let trimmedPrefix = relativePrefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !trimmedPrefix.isEmpty else { return nil }
+            let path = displayDirectoryPath(
+                bucket: bucket,
+                prefix: normalizedPrefix + trimmedPrefix,
+                usesBucketScopedPaths: usesBucketScopedPaths
+            )
+            return BrowserItem(
+                id: path,
+                name: trimmedPrefix,
+                kind: .folder,
+                byteCount: nil,
+                modifiedAt: nil,
+                sizeDescription: "--",
+                modifiedDescription: "--",
+                pathDescription: path,
+                url: nil
+            )
+        }
+
+        let objectItems = response.objects.compactMap { object -> BrowserItem? in
+            if object.key == normalizedPrefix {
+                return nil
+            }
+
+            let relativeKey = object.key.hasPrefix(normalizedPrefix)
+                ? String(object.key.dropFirst(normalizedPrefix.count))
+                : object.key
+            guard !relativeKey.isEmpty, !relativeKey.contains("/") else {
+                return nil
+            }
+
+            let path = displayObjectPath(
+                bucket: bucket,
+                key: object.key,
+                usesBucketScopedPaths: usesBucketScopedPaths
+            )
+            return BrowserItem(
+                id: path,
+                name: relativeKey,
+                kind: fileKind(for: relativeKey, isDirectory: false),
+                byteCount: object.size,
+                modifiedAt: object.lastModified,
+                sizeDescription: sizeDescription(object.size),
+                modifiedDescription: modifiedDescription(for: object.lastModified),
+                pathDescription: path,
+                url: nil
+            )
+        }
+
+        return prefixItems + objectItems
+    }
+
+    private func requestPath(bucket: String) -> String {
+        switch currentRootMode {
+        case .bucket:
+            return "/"
+        case .service:
+            return "/\(bucket)"
+        }
+    }
+
+    private func objectPath(bucket: String, key: String) -> String {
+        switch currentRootMode {
+        case .bucket:
+            return "/\(key)"
+        case .service:
+            return "/\(bucket)/\(key)"
+        }
+    }
+
+    private func copySource(bucket: String, key: String) -> String {
+        switch currentRootMode {
+        case .bucket:
+            return "/" + encodePathComponent(key)
+        case .service:
+            return "/" + [bucket, key]
+                .map { encodePathComponent($0) }
+                .joined(separator: "/")
+        }
+    }
+
+    private func displayDirectoryPath(bucket: String, prefix: String, usesBucketScopedPaths: Bool) -> String {
+        let normalizedPrefix = prefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if usesBucketScopedPaths {
+            return normalizedPrefix.isEmpty ? "/" : "/\(normalizedPrefix)"
+        }
+        return normalizedPrefix.isEmpty ? "/\(bucket)" : "/\(bucket)/\(normalizedPrefix)"
+    }
+
+    private func displayObjectPath(bucket: String, key: String, usesBucketScopedPaths: Bool) -> String {
+        let normalizedKey = key.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if usesBucketScopedPaths {
+            return "/\(normalizedKey)"
+        }
+        return "/\(bucket)/\(normalizedKey)"
+    }
+
+    private func signedHostHeader(for endpointURL: URL) -> String {
+        guard let host = endpointURL.host else {
+            return config.normalizedHost
+        }
+        if let port = endpointURL.port, port != 80, port != 443 {
+            return "\(host):\(port)"
+        }
+        return host
+    }
+
+    private func encodedPath(_ path: String) -> String {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        return components.map { encodePathComponent(String($0)) }.joined(separator: "/")
+    }
+
+    private func encodePathComponent(_ component: String) -> String {
+        S3RequestSigner.uriEncode(component, encodeSlash: false)
+    }
+
+    private var currentRootMode: S3RootMode {
+        lock.lock()
+        defer { lock.unlock() }
+        return rootMode
+    }
+
+    private var currentSigningRegion: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return signingRegion
+    }
+
+    private func setRootMode(_ mode: S3RootMode) {
+        lock.lock()
+        rootMode = mode
+        lock.unlock()
+    }
+
+    private var bucketNameFromEndpoint: String? {
+        if case .bucket(let bucket) = currentRootMode {
+            return bucket
+        }
+        let components = endpointURL.path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        return components.first
+    }
+
+    private func setSigningRegion(_ region: String) {
+        let trimmed = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        lock.lock()
+        signingRegion = trimmed
+        lock.unlock()
+    }
+
+    private func fileKind(for name: String, isDirectory: Bool) -> FileKind {
+        if isDirectory {
+            return .folder
+        }
+
+        switch URL(fileURLWithPath: name).pathExtension.lowercased() {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "svg":
+            return .image
+        case "zip", "tar", "gz", "tgz", "rar", "7z", "xz":
+            return .archive
+        case "swift", "js", "ts", "json", "sh", "py", "rb", "go", "rs", "yml", "yaml", "toml":
+            return .code
+        default:
+            return .document
+        }
+    }
+
+    private func sizeDescription(_ byteCount: Int64?) -> String {
+        guard let byteCount else { return "--" }
+        return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
+
+    private func modifiedDescription(for date: Date?) -> String {
+        guard let date else { return "--" }
+
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+
+        if Calendar.current.isDateInToday(date) {
+            let timeFormatter = DateFormatter()
+            timeFormatter.timeStyle = .short
+            timeFormatter.dateStyle = .none
+            return "Today, \(timeFormatter.string(from: date))"
+        }
+
+        if Calendar.current.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+
+        if abs(date.timeIntervalSinceNow) < 7 * 24 * 60 * 60 {
+            return formatter.localizedString(for: date, relativeTo: Date()).capitalized
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        return dateFormatter.string(from: date)
+    }
+
+    private static let emptyPayloadSHA256 = SHA256.hash(data: Data()).hexDigest
+
+    private static let amzDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    private static let dateStampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    private static func initialRootMode(for endpointURL: URL) -> S3RootMode {
+        let components = endpointURL.path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        if let bucket = components.first, !bucket.isEmpty {
+            return .bucket(bucket)
+        }
+        return .service
+    }
+}
+
+private enum S3RootMode: Equatable {
+    case service
+    case bucket(String)
+
+    var isBucketScoped: Bool {
+        switch self {
+        case .service:
+            return false
+        case .bucket:
+            return true
+        }
+    }
+}
+
+private enum S3RootListing {
+    case service([S3Bucket])
+    case bucket(bucket: String, response: S3ListObjectsResponse)
+}
+
+private final class BlockingURLSessionDelegate: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate, URLSessionDownloadDelegate {
+    let completionSemaphore = DispatchSemaphore(value: 0)
+    let progress: (@Sendable (TransferProgressSnapshot) -> Void)?
+    let destinationURL: URL?
+
+    private(set) var response: URLResponse?
+    private(set) var receivedData = Data()
+    private(set) var error: Error?
+    private(set) var completed = false
+    private(set) var downloadMoveError: Error?
+
+    init(
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        destinationURL: URL?
+    ) {
+        self.progress = progress
+        self.destinationURL = destinationURL
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        receivedData.append(data)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        self.response = response
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        response = downloadTask.response
+        guard let destinationURL else { return }
+
+        do {
+            let fileManager = FileManager.default
+            try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: location, to: destinationURL)
+        } catch {
+            downloadMoveError = error
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        progress?(
+            .init(
+                completedByteCount: totalBytesWritten,
+                totalByteCount: totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
+            )
+        )
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        progress?(
+            .init(
+                completedByteCount: totalBytesSent,
+                totalByteCount: totalBytesExpectedToSend > 0 ? totalBytesExpectedToSend : nil
+            )
+        )
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        response = task.response
+        self.error = error
+        completed = true
+        completionSemaphore.signal()
+    }
+}
+
+private struct S3Bucket {
+    let name: String
+    let createdAt: Date?
+}
+
+private struct S3ObjectEntry {
+    let key: String
+    let size: Int64
+    let lastModified: Date?
+}
+
+private struct S3ListObjectsResponse {
+    let commonPrefixes: [String]
+    let objects: [S3ObjectEntry]
+    let isTruncated: Bool
+    let nextContinuationToken: String?
+}
+
+private enum S3RequestSigner {
+    static func sign(
+        method: String,
+        url: URL,
+        headers: [String: String],
+        payloadHash: String,
+        accessKey: String,
+        secretKey: String,
+        region: String,
+        dateStamp: String,
+        amzDate: String
+    ) throws -> String {
+        let sortedHeaders = headers
+            .map { ($0.key.lowercased(), canonicalHeaderValue($0.value)) }
+            .sorted { $0.0 < $1.0 }
+        let canonicalHeaders = sortedHeaders
+            .map { "\($0.0):\($0.1)\n" }
+            .joined()
+        let signedHeaders = sortedHeaders.map(\.0).joined(separator: ";")
+        let canonicalQuery = canonicalQueryString(from: url)
+        let canonicalRequest = [
+            method,
+            canonicalURI(from: url),
+            canonicalQuery,
+            canonicalHeaders,
+            signedHeaders,
+            payloadHash
+        ].joined(separator: "\n")
+
+        let credentialScope = "\(dateStamp)/\(region)/s3/aws4_request"
+        let hashedCanonicalRequest = SHA256.hash(data: Data(canonicalRequest.utf8)).hexDigest
+        let stringToSign = [
+            "AWS4-HMAC-SHA256",
+            amzDate,
+            credentialScope,
+            hashedCanonicalRequest
+        ].joined(separator: "\n")
+
+        let signingKey = signatureKey(
+            secretKey: secretKey,
+            dateStamp: dateStamp,
+            region: region,
+            service: "s3"
+        )
+        let signature = Data(HMAC<SHA256>.authenticationCode(for: Data(stringToSign.utf8), using: signingKey)).hexDigest
+        return "AWS4-HMAC-SHA256 Credential=\(accessKey)/\(credentialScope), SignedHeaders=\(signedHeaders), Signature=\(signature)"
+    }
+
+    private static func signatureKey(secretKey: String, dateStamp: String, region: String, service: String) -> SymmetricKey {
+        let dateKey = hmac(key: Data(("AWS4" + secretKey).utf8), message: dateStamp)
+        let dateRegionKey = hmac(key: dateKey, message: region)
+        let dateRegionServiceKey = hmac(key: dateRegionKey, message: service)
+        let signingKeyData = hmac(key: dateRegionServiceKey, message: "aws4_request")
+        return SymmetricKey(data: signingKeyData)
+    }
+
+    private static func hmac(key: Data, message: String) -> Data {
+        let symmetricKey = SymmetricKey(data: key)
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: symmetricKey)
+        return Data(signature)
+    }
+
+    private static func canonicalURI(from url: URL) -> String {
+        let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let normalizedPath = path.isEmpty ? "/" : path
+        return normalizedPath.replacingOccurrences(of: "+", with: "%20")
+    }
+
+    private static func canonicalQueryString(from url: URL) -> String {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return "" }
+        let items = components.queryItems ?? []
+        guard !items.isEmpty else { return "" }
+
+        let encodedItems = items.map { item -> (String, String) in
+            let name = uriEncode(item.name, encodeSlash: true)
+            let value = uriEncode(item.value ?? "", encodeSlash: true)
+            return (name, value)
+        }
+        return encodedItems
+            .sorted { lhs, rhs in
+                if lhs.0 == rhs.0 {
+                    return lhs.1 < rhs.1
+                }
+                return lhs.0 < rhs.0
+            }
+            .map { "\($0.0)=\($0.1)" }
+            .joined(separator: "&")
+    }
+
+    static func uriEncode(_ string: String, encodeSlash: Bool) -> String {
+        let unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+        var result = ""
+        for scalar in string.unicodeScalars {
+            if unreserved.unicodeScalars.contains(scalar) || (!encodeSlash && scalar == "/") {
+                result.unicodeScalars.append(scalar)
+                continue
+            }
+
+            for byte in String(scalar).utf8 {
+                result += String(format: "%%%02X", byte)
+            }
+        }
+        return result
+    }
+
+    private static func canonicalHeaderValue(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+}
+
+private enum S3ListBucketsXMLParser {
+    static func parse(data: Data) throws -> [S3Bucket] {
+        let document = try XMLNodeDocument.parse(data: data)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        return document.nodes(named: "Bucket").compactMap { node in
+            guard let name = node.firstValue(named: "Name"), !name.isEmpty else { return nil }
+            let createdAtText = node.firstValue(named: "CreationDate")
+            let createdAt = createdAtText.flatMap {
+                formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0)
+            }
+            return S3Bucket(name: name, createdAt: createdAt)
+        }
+    }
+}
+
+private enum S3ListObjectsXMLParser {
+    static func parse(data: Data) throws -> S3ListObjectsResponse {
+        let document = try XMLNodeDocument.parse(data: data)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallbackFormatter = ISO8601DateFormatter()
+
+        let commonPrefixes = document
+            .nodes(named: "CommonPrefixes")
+            .compactMap { $0.firstValue(named: "Prefix") }
+
+        let objects = document
+            .nodes(named: "Contents")
+            .compactMap { node -> S3ObjectEntry? in
+                guard let key = node.firstValue(named: "Key"), !key.isEmpty else { return nil }
+                let size = Int64(node.firstValue(named: "Size") ?? "") ?? 0
+                let modifiedAtText = node.firstValue(named: "LastModified")
+                let modifiedAt = modifiedAtText.flatMap {
+                    formatter.date(from: $0) ?? fallbackFormatter.date(from: $0)
+                }
+                return S3ObjectEntry(key: key, size: size, lastModified: modifiedAt)
+            }
+
+        let isTruncated = (document.firstValue(named: "IsTruncated") ?? "").lowercased() == "true"
+        let nextContinuationToken = document.firstValue(named: "NextContinuationToken")
+
+        return S3ListObjectsResponse(
+            commonPrefixes: commonPrefixes,
+            objects: objects,
+            isTruncated: isTruncated,
+            nextContinuationToken: nextContinuationToken
+        )
+    }
+}
+
+private struct XMLNodeDocument {
+    fileprivate let root: XMLNode
+
+    static func parse(data: Data) throws -> XMLNodeDocument {
+        let delegate = XMLTreeParserDelegate()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        guard parser.parse(), let root = delegate.root else {
+            let details = parser.parserError?.localizedDescription ?? "Failed to parse XML."
+            throw RemoteClientError.requestFailed(details: details)
+        }
+        return XMLNodeDocument(root: root)
+    }
+
+    func nodes(named name: String) -> [XMLNode] {
+        root.allDescendants(named: name)
+    }
+
+    func firstValue(named name: String) -> String? {
+        root.firstValue(named: name)
+    }
+}
+
+private struct XMLNode {
+    let name: String
+    var value: String
+    var children: [XMLNode]
+
+    func allDescendants(named target: String) -> [XMLNode] {
+        var matches: [XMLNode] = []
+        if name == target {
+            matches.append(self)
+        }
+        for child in children {
+            matches.append(contentsOf: child.allDescendants(named: target))
+        }
+        return matches
+    }
+
+    func firstValue(named target: String) -> String? {
+        if name == target, !value.isEmpty {
+            return value
+        }
+        for child in children {
+            if let value = child.firstValue(named: target) {
+                return value
+            }
+        }
+        return nil
+    }
+}
+
+private final class XMLTreeParserDelegate: NSObject, XMLParserDelegate {
+    private var stack: [XMLNode] = []
+    private(set) var root: XMLNode?
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+        stack.append(XMLNode(name: elementName, value: "", children: []))
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard !stack.isEmpty else { return }
+        stack[stack.count - 1].value += string
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        guard let node = stack.popLast() else { return }
+        var trimmed = node
+        trimmed.value = node.value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if stack.isEmpty {
+            root = trimmed
+        } else {
+            stack[stack.count - 1].children.append(trimmed)
+        }
+    }
+}
+
+private func sha256Hex(forFileAt url: URL) throws -> String {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+
+    var hasher = SHA256()
+    while true {
+        let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+        if chunk.isEmpty {
+            break
+        }
+        hasher.update(data: chunk)
+    }
+    return hasher.finalize().hexDigest
+}
+
+private func localFileByteCount(for url: URL) throws -> Int64 {
+    if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+        return Int64(size)
+    }
+
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
+    if let fileSize = attributes[.size] as? NSNumber {
+        return fileSize.int64Value
+    }
+
+    throw NSError(
+        domain: "S3HTTPSession",
+        code: CocoaError.fileReadUnknown.rawValue,
+        userInfo: [NSLocalizedDescriptionKey: "Unable to determine file size for \(url.lastPathComponent)."]
+    )
+}
+
+private extension Digest {
+    var hexDigest: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private extension Data {
+    var hexDigest: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 private final class CitadelSFTPSession: @unchecked Sendable {
     private static let connectionTimeout: TimeInterval = 15
     private static let directoryTimeout: TimeInterval = 15
@@ -1234,6 +2706,33 @@ private func readSSHString(from buffer: inout ByteBuffer) -> Data? {
 }
 
 private extension RemoteConnectionConfig {
+    func resolvedHTTPEndpointURL() throws -> URL {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The Host field is empty.")
+        }
+
+        let scheme = port == 80 ? "http" : "https"
+        let rawEndpoint = trimmed.contains("://") ? trimmed : "\(scheme)://\(trimmed)"
+        guard var components = URLComponents(string: rawEndpoint) else {
+            throw RemoteClientError.requestFailed(details: "The S3 endpoint is not a valid URL.")
+        }
+        guard let resolvedHost = components.host, !resolvedHost.isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The S3 endpoint is missing a host name.")
+        }
+
+        if components.port == nil {
+            components.port = port
+        }
+        if components.path.isEmpty {
+            components.path = ""
+        }
+        guard let url = components.url else {
+            throw RemoteClientError.requestFailed(details: "Failed to build the S3 endpoint URL.")
+        }
+        return url
+    }
+
     func resolvedConnectHost() throws -> String {
         let host = normalizedHost
         guard !host.isEmpty else {
@@ -1303,7 +2802,7 @@ private extension RemoteConnectionConfig {
         case .webdav:
             return "dav"
         case .cloud:
-            return "cloud"
+            return "s3"
         }
     }
 }

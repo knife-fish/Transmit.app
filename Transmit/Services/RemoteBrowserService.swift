@@ -17,6 +17,7 @@ struct RemoteConnectionConfig: Hashable {
     let publicKeyPath: String?
     let password: String?
     let addressPreference: ConnectionAddressPreference
+    let s3Region: String?
 }
 
 struct MockRemoteClient: RemoteClient {

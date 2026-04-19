@@ -1738,7 +1738,7 @@ private struct InspectorView: View {
             inspectorValueRow("Site", value: resolvedSiteSummary.name)
             inspectorValueRow("Endpoint", value: resolvedSiteSummary.endpoint, prominent: false, monospace: true)
             inspectorValueRow("Protocol", value: resolvedSiteSummary.protocolTitle)
-            inspectorValueRow("Auth", value: resolvedSiteSummary.passwordStatus)
+            inspectorValueRow(resolvedSiteSummary.authenticationLabel, value: resolvedSiteSummary.passwordStatus)
 
             if showsConnectionSheet {
                 Text(resolvedSiteSummary.editorState)
@@ -1766,6 +1766,9 @@ private struct InspectorView: View {
                 name: title,
                 endpoint: "\(usernameText)@\(hostText):\(port)",
                 protocolTitle: connectionDraft.connectionKind.title,
+                authenticationLabel: connectionDraft.connectionKind == .cloud
+                    ? LocalizedStringKey("Credentials")
+                    : LocalizedStringKey("Auth"),
                 passwordStatus: draftAuthenticationStatus,
                 editorState: selectedServer == nil
                     ? String(localized: "Quick Connect draft is open in the configuration sheet.")
@@ -1778,12 +1781,32 @@ private struct InspectorView: View {
             name: selectedServer.name,
             endpoint: "\(selectedServer.username)@\(selectedServer.endpoint):\(selectedServer.port)",
             protocolTitle: selectedServer.connectionKind.title,
+            authenticationLabel: selectedServer.connectionKind == .cloud
+                ? LocalizedStringKey("Credentials")
+                : LocalizedStringKey("Auth"),
             passwordStatus: savedAuthenticationStatus(for: selectedServer),
             editorState: ""
         )
     }
 
     private var draftAuthenticationStatus: String {
+        if connectionDraft.connectionKind == .cloud {
+            let trimmedAccessKey = connectionDraft.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            if connectionDraft.clearsSavedPassword {
+                return String(localized: "Will clear saved secret key")
+            }
+            if trimmedAccessKey.isEmpty {
+                return String(localized: "Access key not set")
+            }
+            if !connectionDraft.password.isEmpty {
+                return String(localized: "Access key + secret key")
+            }
+            if hasSavedPasswordForSelectedServer {
+                return String(localized: "Secret key saved in Keychain")
+            }
+            return String(localized: "Secret key not saved")
+        }
+
         if connectionDraft.authenticationMode == .sshKey {
             let keyPath = connectionDraft.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if keyPath.isEmpty {
@@ -1808,6 +1831,12 @@ private struct InspectorView: View {
     }
 
     private func savedAuthenticationStatus(for server: ServerProfile) -> String {
+        if server.connectionKind == .cloud {
+            return hasSavedPasswordForSelectedServer
+                ? String(localized: "Secret key saved in Keychain")
+                : String(localized: "Secret key not saved")
+        }
+
         switch server.authenticationMode {
         case .password:
             return hasSavedPasswordForSelectedServer
@@ -1873,6 +1902,7 @@ private struct SiteSummary {
     let name: String
     let endpoint: String
     let protocolTitle: String
+    let authenticationLabel: LocalizedStringKey
     let passwordStatus: String
     let editorState: String
 }
@@ -2120,25 +2150,27 @@ private struct ConnectionSheet: View {
             }
             .help(String(localized: "Protocol used for this saved site."))
 
-            TextField("Host", text: $draft.host)
+            TextField(hostFieldTitle, text: $draft.host)
                 .textFieldStyle(.roundedBorder)
-                .help(String(localized: "Remote host name or IP address."))
+                .help(hostFieldHelp)
 
             HStack {
                 TextField("Port", text: $draft.port)
                     .textFieldStyle(.roundedBorder)
                     .help(String(localized: "Network port used for the remote protocol."))
-                TextField("Username", text: $draft.username)
+                TextField(accountFieldTitle, text: $draft.username)
                     .textFieldStyle(.roundedBorder)
-                    .help(String(localized: "Username used to authenticate with the remote server."))
+                    .help(accountFieldHelp)
             }
 
-            Picker("Authentication", selection: $draft.authenticationMode) {
-                ForEach(ConnectionAuthenticationMode.allCases, id: \.self) { mode in
-                    Text(mode.title).tag(mode)
+            if draft.connectionKind != .cloud {
+                Picker("Authentication", selection: $draft.authenticationMode) {
+                    ForEach(ConnectionAuthenticationMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
+                .help(String(localized: "Choose whether SFTP should use an account password or an SSH private key."))
             }
-            .help(String(localized: "Choose whether SFTP should use an account password or an SSH private key."))
 
             if draft.authenticationMode == .sshKey {
                 VStack(alignment: .leading, spacing: 8) {
@@ -2163,6 +2195,17 @@ private struct ConnectionSheet: View {
 
             DisclosureGroup("Advanced") {
                 VStack(alignment: .leading, spacing: 12) {
+                    if draft.connectionKind == .cloud {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Region")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("us-east-1", text: $draft.s3Region)
+                                .textFieldStyle(.roundedBorder)
+                                .help(String(localized: "AWS signing region for this S3-compatible endpoint. Change this if the server rejects signatures for us-east-1."))
+                        }
+                    }
+
                     Picker("Addressing", selection: $draft.addressPreference) {
                         ForEach(ConnectionAddressPreference.allCases, id: \.self) { preference in
                             Text(preference.title).tag(preference)
@@ -2266,7 +2309,46 @@ private struct ConnectionSheet: View {
         )
     }
 
+    private var hostFieldTitle: String {
+        switch draft.connectionKind {
+        case .cloud:
+            return String(localized: "Endpoint")
+        case .sftp, .webdav:
+            return String(localized: "Host")
+        }
+    }
+
+    private var hostFieldHelp: String {
+        switch draft.connectionKind {
+        case .cloud:
+            return String(localized: "S3-compatible endpoint URL or bucket endpoint. Examples: https://s3.example.com or https://bucket.s3.example.com")
+        case .sftp, .webdav:
+            return String(localized: "Remote host name or IP address.")
+        }
+    }
+
+    private var accountFieldTitle: String {
+        switch draft.connectionKind {
+        case .cloud:
+            return String(localized: "Access Key")
+        case .sftp, .webdav:
+            return String(localized: "Username")
+        }
+    }
+
+    private var accountFieldHelp: String {
+        switch draft.connectionKind {
+        case .cloud:
+            return String(localized: "Access key ID used to sign S3 requests.")
+        case .sftp, .webdav:
+            return String(localized: "Username used to authenticate with the remote server.")
+        }
+    }
+
     private var secretFieldTitle: String {
+        if draft.connectionKind == .cloud {
+            return String(localized: "Secret Key")
+        }
         switch draft.authenticationMode {
         case .password:
             return String(localized: "Password")
@@ -2276,6 +2358,9 @@ private struct ConnectionSheet: View {
     }
 
     private var secretFieldHelp: String {
+        if draft.connectionKind == .cloud {
+            return String(localized: "Secret access key used to sign S3 requests.")
+        }
         switch draft.authenticationMode {
         case .password:
             return String(localized: "Password for the remote account. Leave empty when using key-based auth.")
@@ -2285,6 +2370,9 @@ private struct ConnectionSheet: View {
     }
 
     private var isMissingRequiredAuthentication: Bool {
+        if draft.connectionKind == .cloud {
+            return false
+        }
         switch draft.authenticationMode {
         case .password:
             return false
@@ -2294,6 +2382,9 @@ private struct ConnectionSheet: View {
     }
 
     private var clearSavedSecretButtonTitle: String {
+        if draft.connectionKind == .cloud {
+            return String(localized: "Clear Saved Secret Key")
+        }
         switch draft.authenticationMode {
         case .password:
             return String(localized: "Clear Saved Password")
@@ -2303,6 +2394,9 @@ private struct ConnectionSheet: View {
     }
 
     private var clearSavedSecretHelpText: String {
+        if draft.connectionKind == .cloud {
+            return String(localized: "Remove the stored secret key for this saved S3 site from Keychain.")
+        }
         switch draft.authenticationMode {
         case .password:
             return String(localized: "Remove the stored password for this saved site from Keychain.")
@@ -2312,6 +2406,19 @@ private struct ConnectionSheet: View {
     }
 
     private var savedPasswordStatusText: String {
+        if draft.connectionKind == .cloud {
+            if draft.clearsSavedPassword {
+                return String(localized: "Saved secret key will be removed when you save this site.")
+            }
+            if hasSavedPassword, draft.password.isEmpty {
+                return String(localized: "A secret key is saved in Keychain and will be kept unless you clear it.")
+            }
+            if hasSavedPassword {
+                return String(localized: "A secret key is currently loaded from Keychain for this site.")
+            }
+            return String(localized: "No secret key is currently saved for this site.")
+        }
+
         if draft.authenticationMode == .sshKey {
             if draft.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return String(localized: "Choose a private key file to enable SSH key login.")
