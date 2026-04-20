@@ -501,6 +501,233 @@ struct LibraryBackedS3RemoteClient: RemoteClient {
 
 }
 
+struct LibraryBackedWebDAVRemoteClient: RemoteClient {
+    private let config: RemoteConnectionConfig
+    private let transport: WebDAVHTTPSession
+
+    init(
+        config: RemoteConnectionConfig,
+        transport: WebDAVHTTPSession? = nil
+    ) {
+        self.config = config
+        self.transport = transport ?? WebDAVHTTPSession(config: config)
+    }
+
+    func makeInitialLocation(relativeTo localDirectoryURL: URL) -> RemoteLocation {
+        makeRemoteLocation(path: "/")
+    }
+
+    func makeLocation(for directoryURL: URL) -> RemoteLocation {
+        makeRemoteLocation(path: directoryURL.path(percentEncoded: false))
+    }
+
+    func parentLocation(of location: RemoteLocation) -> RemoteLocation? {
+        guard location.remotePath != "/" else { return nil }
+        let parent = (location.remotePath as NSString).deletingLastPathComponent
+        return makeRemoteLocation(path: parent.isEmpty ? "/" : parent)
+    }
+
+    func location(for item: BrowserItem, from currentLocation: RemoteLocation) -> RemoteLocation? {
+        guard item.isDirectory else { return nil }
+        return makeRemoteLocation(path: item.pathDescription)
+    }
+
+    func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
+        let snapshot = try transport.loadDirectorySnapshot(in: location)
+        let sortedItems = snapshot.items.sorted { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory && !rhs.isDirectory
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        return RemoteDirectorySnapshot(
+            location: makeRemoteLocation(path: snapshot.location.remotePath),
+            items: sortedItems,
+            homePath: snapshot.homePath
+        )
+    }
+
+    func destinationDirectoryURL(for location: RemoteLocation) -> URL? {
+        nil
+    }
+
+    func uploadItem(
+        at localURL: URL,
+        to remoteLocation: RemoteLocation,
+        conflictPolicy: TransferConflictPolicy,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws -> RemoteUploadResult {
+        let resourceValues = try localURL.resourceValues(forKeys: [.isDirectoryKey])
+        if resourceValues.isDirectory == true {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+
+        let destinationName = try resolvedRemoteName(
+            proposedName: localURL.lastPathComponent,
+            in: remoteLocation,
+            conflictPolicy: conflictPolicy
+        )
+        let destinationPath = join(remotePath: remoteLocation.remotePath, name: destinationName)
+        try transport.uploadItem(
+            at: localURL,
+            toRemotePath: destinationPath,
+            progress: progress,
+            isCancelled: isCancelled
+        )
+        return RemoteUploadResult(
+            remoteItemID: destinationPath,
+            destinationName: destinationName,
+            renamedForConflict: destinationName != localURL.lastPathComponent
+        )
+    }
+
+    func downloadItem(
+        named name: String,
+        at remotePath: String,
+        toDirectory localDirectoryURL: URL,
+        localFileTransfer: LocalFileTransferService,
+        conflictPolicy: TransferConflictPolicy,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws -> LocalFileTransferResult {
+        let destinationURL = try localFileTransfer.destinationURL(
+            forProposedName: name,
+            in: localDirectoryURL,
+            conflictPolicy: conflictPolicy
+        )
+        if conflictPolicy == .overwrite, FileManager.default.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+            try localFileTransfer.deleteItem(at: destinationURL)
+        }
+
+        try transport.downloadItem(
+            atRemotePath: remotePath,
+            to: destinationURL,
+            progress: progress,
+            isCancelled: isCancelled
+        )
+        return LocalFileTransferResult(
+            sourceURL: URL(fileURLWithPath: remotePath),
+            destinationURL: destinationURL,
+            renamedForConflict: destinationURL.lastPathComponent != name
+        )
+    }
+
+    func createDirectory(named proposedName: String, in remoteLocation: RemoteLocation) throws -> RemoteMutationResult {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let destinationName = try makeUniqueRemoteName(proposedName: sanitizedName, in: remoteLocation)
+        let destinationPath = join(remotePath: remoteLocation.remotePath, name: destinationName)
+        try transport.createDirectory(atRemotePath: destinationPath)
+        return RemoteMutationResult(
+            remoteItemID: destinationPath,
+            destinationName: destinationName
+        )
+    }
+
+    func renameItem(named originalName: String, at remotePath: String, to proposedName: String) throws -> RemoteMutationResult {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let parentPath = parentPath(for: remotePath)
+        let destinationPath = join(remotePath: parentPath, name: sanitizedName)
+        guard destinationPath != remotePath else {
+            return RemoteMutationResult(remoteItemID: remotePath, destinationName: sanitizedName)
+        }
+
+        let siblingItems = try loadItems(in: makeRemoteLocation(path: parentPath))
+        guard !siblingItems.contains(where: { $0.name == sanitizedName && $0.pathDescription != remotePath }) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        try transport.renameItem(atRemotePath: remotePath, toRemotePath: destinationPath)
+        return RemoteMutationResult(
+            remoteItemID: destinationPath,
+            destinationName: sanitizedName
+        )
+    }
+
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
+        try transport.deleteItem(atRemotePath: remotePath)
+    }
+
+    private func makeRemoteLocation(path: String) -> RemoteLocation {
+        let normalizedPath = normalizedRemotePath(path)
+        return RemoteLocation(
+            id: normalizedPath,
+            path: "dav://\(config.normalizedHost)\(normalizedPath)",
+            remotePath: normalizedPath,
+            directoryURL: nil
+        )
+    }
+
+    private func normalizedRemotePath(_ path: String) -> String {
+        let standardized = NSString(string: path).standardizingPath
+        if standardized.isEmpty || standardized == "." {
+            return "/"
+        }
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func join(remotePath: String, name: String) -> String {
+        if remotePath == "/" {
+            return "/\(name)"
+        }
+        return "\(remotePath)/\(name)"
+    }
+
+    private func parentPath(for remotePath: String) -> String {
+        let parent = (remotePath as NSString).deletingLastPathComponent
+        if parent.isEmpty {
+            return "/"
+        }
+        return normalizedRemotePath(parent)
+    }
+
+    private func validateRemoteName(_ proposedName: String) throws -> String {
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != "..", !trimmed.contains("/") else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        return trimmed
+    }
+
+    private func makeUniqueRemoteName(proposedName: String, in remoteLocation: RemoteLocation) throws -> String {
+        let sanitizedName = try validateRemoteName(proposedName)
+        let siblingNames = Set(try loadItems(in: remoteLocation).map(\.name))
+        guard siblingNames.contains(sanitizedName) else {
+            return sanitizedName
+        }
+
+        let pathExtension = URL(fileURLWithPath: sanitizedName).pathExtension
+        let baseName = pathExtension.isEmpty
+            ? sanitizedName
+            : String(sanitizedName.dropLast(pathExtension.count + 1))
+
+        var candidateIndex = 2
+        while true {
+            let candidateBase = "\(baseName) \(candidateIndex)"
+            let candidate = pathExtension.isEmpty
+                ? candidateBase
+                : "\(candidateBase).\(pathExtension)"
+            if !siblingNames.contains(candidate) {
+                return candidate
+            }
+            candidateIndex += 1
+        }
+    }
+
+    private func resolvedRemoteName(
+        proposedName: String,
+        in remoteLocation: RemoteLocation,
+        conflictPolicy: TransferConflictPolicy
+    ) throws -> String {
+        switch conflictPolicy {
+        case .rename:
+            return try makeUniqueRemoteName(proposedName: proposedName, in: remoteLocation)
+        case .overwrite:
+            return try validateRemoteName(proposedName)
+        }
+    }
+}
+
 final class S3HTTPSession: NSObject {
     private static let requestTimeout: TimeInterval = 30
     private static let fileTransferTimeout: TimeInterval = 600
@@ -508,6 +735,7 @@ final class S3HTTPSession: NSObject {
 
     private let config: RemoteConnectionConfig
     private let endpointURL: URL
+    private let endpointResolutionError: Error?
     private let urlSessionConfiguration: URLSessionConfiguration
     private let now: @Sendable () -> Date
     private let lock = NSLock()
@@ -520,7 +748,13 @@ final class S3HTTPSession: NSObject {
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.config = config
-        self.endpointURL = try! config.resolvedHTTPEndpointURL()
+        do {
+            self.endpointURL = try config.resolvedHTTPEndpointURL()
+            self.endpointResolutionError = nil
+        } catch {
+            self.endpointURL = URL(string: "http://invalid.local")!
+            self.endpointResolutionError = error
+        }
         self.urlSessionConfiguration = urlSessionConfiguration
         self.now = now
         self.rootMode = Self.initialRootMode(for: self.endpointURL)
@@ -531,6 +765,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
+        _ = try validatedEndpointURL()
         let normalizedLocation = makeRemoteLocation(path: location.remotePath)
         if normalizedLocation.remotePath == "/" {
             switch try discoverRootListing() {
@@ -579,6 +814,7 @@ final class S3HTTPSession: NSObject {
         progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
         isCancelled: (@Sendable () -> Bool)?
     ) throws {
+        _ = try validatedEndpointURL()
         let payloadHash = try sha256Hex(forFileAt: localURL)
         let contentLength = try localFileByteCount(for: localURL)
         progress?(.init(completedByteCount: 0, totalByteCount: contentLength))
@@ -619,6 +855,7 @@ final class S3HTTPSession: NSObject {
         progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
         isCancelled: (@Sendable () -> Bool)?
     ) throws {
+        _ = try validatedEndpointURL()
         let request = try signedRequest(
             method: "GET",
             path: objectPath(bucket: bucket, key: key),
@@ -646,6 +883,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func createDirectory(bucket: String, prefix: String?) throws {
+        _ = try validatedEndpointURL()
         guard let prefix else {
             throw RemoteClientError.requestFailed(details: "S3 buckets are managed outside this app; create a folder inside an existing bucket.")
         }
@@ -662,11 +900,13 @@ final class S3HTTPSession: NSObject {
     }
 
     func renameObject(bucket: String, fromKey: String, toKey: String) throws {
+        _ = try validatedEndpointURL()
         try copyObject(bucket: bucket, fromKey: fromKey, toKey: toKey)
         try deleteObject(bucket: bucket, key: fromKey)
     }
 
     func renamePrefix(bucket: String, fromPrefix: String?, toPrefix: String?) throws {
+        _ = try validatedEndpointURL()
         let sourcePrefix = fromPrefix ?? ""
         let destinationPrefix = toPrefix ?? ""
         let objects = try listObjectsRecursively(bucket: bucket, prefix: sourcePrefix)
@@ -678,6 +918,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func deleteObject(bucket: String, key: String) throws {
+        _ = try validatedEndpointURL()
         _ = try executeDataRequest(
             method: "DELETE",
             path: objectPath(bucket: bucket, key: key),
@@ -689,6 +930,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func deletePrefix(bucket: String, prefix: String?) throws {
+        _ = try validatedEndpointURL()
         guard let prefix else {
             throw RemoteClientError.requestFailed(details: "Bucket deletion is not supported from this app.")
         }
@@ -703,6 +945,7 @@ final class S3HTTPSession: NSObject {
         for remotePath: String,
         allowRootBucket: Bool
     ) throws -> (bucket: String, prefix: String?) {
+        _ = try validatedEndpointURL()
         let normalizedPath = normalizedRemotePath(remotePath)
         switch currentRootMode {
         case .bucket(let bucket):
@@ -736,6 +979,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func resolveDirectoryReferenceIfPossible(for remotePath: String) throws -> (bucket: String, prefix: String?)? {
+        _ = try validatedEndpointURL()
         let normalizedPath = normalizedRemotePath(remotePath)
         guard normalizedPath != "/" else { return nil }
 
@@ -770,6 +1014,7 @@ final class S3HTTPSession: NSObject {
     }
 
     func resolveObjectReference(for remotePath: String) throws -> (bucket: String, key: String) {
+        _ = try validatedEndpointURL()
         let normalizedPath = normalizedRemotePath(remotePath)
         switch currentRootMode {
         case .bucket(let bucket):
@@ -796,6 +1041,7 @@ final class S3HTTPSession: NSObject {
     }
 
     private func listBuckets() throws -> [S3Bucket] {
+        _ = try validatedEndpointURL()
         let data = try executeDataRequest(
             method: "GET",
             path: "/",
@@ -808,6 +1054,7 @@ final class S3HTTPSession: NSObject {
     }
 
     private func discoverRootListing() throws -> S3RootListing {
+        _ = try validatedEndpointURL()
         let data = try executeDataRequest(
             method: "GET",
             path: "/",
@@ -839,6 +1086,7 @@ final class S3HTTPSession: NSObject {
     }
 
     private func listObjects(bucket: String, prefix: String?, delimiter: String?) throws -> S3ListObjectsResponse {
+        _ = try validatedEndpointURL()
         var queryItems = [URLQueryItem(name: "list-type", value: "2")]
         if let prefix {
             queryItems.append(URLQueryItem(name: "prefix", value: prefix))
@@ -859,6 +1107,7 @@ final class S3HTTPSession: NSObject {
     }
 
     private func listObjectsRecursively(bucket: String, prefix: String?) throws -> [S3ObjectEntry] {
+        _ = try validatedEndpointURL()
         var objects: [S3ObjectEntry] = []
         var continuationToken: String?
 
@@ -888,6 +1137,7 @@ final class S3HTTPSession: NSObject {
     }
 
     private func copyObject(bucket: String, fromKey: String, toKey: String) throws {
+        _ = try validatedEndpointURL()
         _ = try executeDataRequest(
             method: "PUT",
             path: objectPath(bucket: bucket, key: toKey),
@@ -908,6 +1158,7 @@ final class S3HTTPSession: NSObject {
         payloadHash: String,
         timeout: TimeInterval
     ) throws -> (data: Data, response: HTTPURLResponse) {
+        _ = try validatedEndpointURL()
         let request = try signedRequest(
             method: method,
             path: path,
@@ -997,6 +1248,7 @@ final class S3HTTPSession: NSObject {
         payloadHash: String,
         date: Date
     ) throws -> URLRequest {
+        let endpointURL = try validatedEndpointURL()
         guard !config.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw RemoteClientError.requestFailed(details: "The Access Key field is empty.")
         }
@@ -1042,6 +1294,13 @@ final class S3HTTPSession: NSObject {
         }
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         return request
+    }
+
+    private func validatedEndpointURL() throws -> URL {
+        if let endpointResolutionError {
+            throw endpointResolutionError
+        }
+        return endpointURL
     }
 
     private func makeRemoteLocation(path: String) -> RemoteLocation {
@@ -1273,11 +1532,11 @@ final class S3HTTPSession: NSObject {
             let timeFormatter = DateFormatter()
             timeFormatter.timeStyle = .short
             timeFormatter.dateStyle = .none
-            return "Today, \(timeFormatter.string(from: date))"
+            return "\(String(localized: "Today")), \(timeFormatter.string(from: date))"
         }
 
         if Calendar.current.isDateInYesterday(date) {
-            return "Yesterday"
+            return String(localized: "Yesterday")
         }
 
         if abs(date.timeIntervalSinceNow) < 7 * 24 * 60 * 60 {
@@ -1316,6 +1575,358 @@ final class S3HTTPSession: NSObject {
             return .bucket(bucket)
         }
         return .service
+    }
+}
+
+final class WebDAVHTTPSession: NSObject {
+    private static let requestTimeout: TimeInterval = 30
+    private static let fileTransferTimeout: TimeInterval = 600
+
+    private let config: RemoteConnectionConfig
+    private let endpointURL: URL
+    private let endpointResolutionError: Error?
+    private let urlSessionConfiguration: URLSessionConfiguration
+
+    init(
+        config: RemoteConnectionConfig,
+        urlSessionConfiguration: URLSessionConfiguration = .ephemeral
+    ) {
+        self.config = config
+        do {
+            self.endpointURL = try config.resolvedWebDAVEndpointURL()
+            self.endpointResolutionError = nil
+        } catch {
+            self.endpointURL = URL(string: "http://invalid.local")!
+            self.endpointResolutionError = error
+        }
+        self.urlSessionConfiguration = urlSessionConfiguration
+        super.init()
+    }
+
+    func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
+        _ = try validatedEndpointURL()
+        let normalizedLocation = makeRemoteLocation(path: location.remotePath)
+        let targetURL = try resourceURL(forRemotePath: normalizedLocation.remotePath, isDirectoryHint: true)
+        let body = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <d:propfind xmlns:d="DAV:">
+          <d:prop>
+            <d:displayname/>
+            <d:resourcetype/>
+            <d:getcontentlength/>
+            <d:getlastmodified/>
+          </d:prop>
+        </d:propfind>
+        """
+        let result = try executeDataRequest(
+            method: "PROPFIND",
+            url: targetURL,
+            headers: [
+                "Depth": "1",
+                "Content-Type": "application/xml; charset=utf-8"
+            ],
+            bodyData: Data(body.utf8),
+            timeout: Self.requestTimeout,
+            acceptedStatusCodes: [200, 207]
+        )
+
+        let responseItems = try WebDAVPROPFINDXMLParser.parse(
+            data: result.data,
+            endpointURL: endpointURL,
+            requestedRemotePath: normalizedLocation.remotePath
+        )
+
+        return RemoteDirectorySnapshot(
+            location: normalizedLocation,
+            items: responseItems,
+            homePath: "/"
+        )
+    }
+
+    func uploadItem(
+        at localURL: URL,
+        toRemotePath remotePath: String,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws {
+        _ = try validatedEndpointURL()
+        let targetURL = try resourceURL(forRemotePath: remotePath, isDirectoryHint: false)
+        let contentLength = try localFileByteCount(for: localURL)
+        progress?(.init(completedByteCount: 0, totalByteCount: contentLength))
+
+        var request = try authorizedRequest(url: targetURL, method: "PUT")
+        request.setValue(String(contentLength), forHTTPHeaderField: "Content-Length")
+
+        let delegate = BlockingURLSessionDelegate(progress: progress, destinationURL: nil)
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let task = session.uploadTask(with: request, fromFile: localURL)
+        _ = try runTask(
+            task,
+            delegate: delegate,
+            timeout: Self.fileTransferTimeout,
+            operationDescription: "Uploading \(localURL.lastPathComponent)",
+            isCancelled: isCancelled,
+            acceptedStatusCodes: [200, 201, 204]
+        )
+        progress?(.init(completedByteCount: contentLength, totalByteCount: contentLength))
+    }
+
+    func downloadItem(
+        atRemotePath remotePath: String,
+        to destinationURL: URL,
+        progress: (@Sendable (TransferProgressSnapshot) -> Void)?,
+        isCancelled: (@Sendable () -> Bool)?
+    ) throws {
+        _ = try validatedEndpointURL()
+        let targetURL = try resourceURL(forRemotePath: remotePath, isDirectoryHint: false)
+        let request = try authorizedRequest(url: targetURL, method: "GET")
+
+        let delegate = BlockingURLSessionDelegate(progress: progress, destinationURL: destinationURL)
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let task = session.downloadTask(with: request)
+        _ = try runTask(
+            task,
+            delegate: delegate,
+            timeout: Self.fileTransferTimeout,
+            operationDescription: "Downloading \(destinationURL.lastPathComponent)",
+            isCancelled: isCancelled,
+            acceptedStatusCodes: [200]
+        )
+    }
+
+    func createDirectory(atRemotePath remotePath: String) throws {
+        _ = try validatedEndpointURL()
+        let targetURL = try resourceURL(forRemotePath: remotePath, isDirectoryHint: true)
+        _ = try executeDataRequest(
+            method: "MKCOL",
+            url: targetURL,
+            headers: [:],
+            bodyData: nil,
+            timeout: Self.requestTimeout,
+            acceptedStatusCodes: [201, 405]
+        )
+    }
+
+    func renameItem(atRemotePath remotePath: String, toRemotePath destinationPath: String) throws {
+        _ = try validatedEndpointURL()
+        let sourceURL = try resourceURL(forRemotePath: remotePath, isDirectoryHint: nil)
+        let destinationURL = try resourceURL(forRemotePath: destinationPath, isDirectoryHint: nil)
+        _ = try executeDataRequest(
+            method: "MOVE",
+            url: sourceURL,
+            headers: [
+                "Destination": destinationURL.absoluteString,
+                "Overwrite": "F"
+            ],
+            bodyData: nil,
+            timeout: Self.requestTimeout,
+            acceptedStatusCodes: [201, 204]
+        )
+    }
+
+    func deleteItem(atRemotePath remotePath: String) throws {
+        _ = try validatedEndpointURL()
+        let targetURL = try resourceURL(forRemotePath: remotePath, isDirectoryHint: nil)
+        _ = try executeDataRequest(
+            method: "DELETE",
+            url: targetURL,
+            headers: [:],
+            bodyData: nil,
+            timeout: Self.requestTimeout,
+            acceptedStatusCodes: [200, 204]
+        )
+    }
+
+    private func executeDataRequest(
+        method: String,
+        url: URL,
+        headers: [String: String],
+        bodyData: Data?,
+        timeout: TimeInterval,
+        acceptedStatusCodes: Set<Int>
+    ) throws -> (data: Data, response: HTTPURLResponse) {
+        _ = try validatedEndpointURL()
+        let request = try authorizedRequest(url: url, method: method, headers: headers, bodyData: bodyData)
+        let delegate = BlockingURLSessionDelegate(progress: nil, destinationURL: nil)
+        let session = URLSession(configuration: urlSessionConfiguration, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let task = session.dataTask(with: request)
+        return try runTask(
+            task,
+            delegate: delegate,
+            timeout: timeout,
+            operationDescription: "\(method) \(url.path(percentEncoded: false))",
+            isCancelled: nil,
+            acceptedStatusCodes: acceptedStatusCodes
+        )
+    }
+
+    @discardableResult
+    private func runTask(
+        _ task: URLSessionTask,
+        delegate: BlockingURLSessionDelegate,
+        timeout: TimeInterval,
+        operationDescription: String,
+        isCancelled: (@Sendable () -> Bool)?,
+        acceptedStatusCodes: Set<Int>
+    ) throws -> (data: Data, response: HTTPURLResponse) {
+        task.resume()
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            if isCancelled?() == true {
+                task.cancel()
+                throw CancellationError()
+            }
+
+            if delegate.completed {
+                break
+            }
+
+            if Date() >= deadline {
+                task.cancel()
+                throw RemoteClientError.operationTimedOut(operation: operationDescription, seconds: timeout)
+            }
+
+            _ = delegate.completionSemaphore.wait(timeout: .now() + 0.1)
+        }
+
+        if let error = delegate.error {
+            if error is CancellationError {
+                throw error
+            }
+            if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorCancelled {
+                throw CancellationError()
+            }
+            throw RemoteClientError.requestFailed(details: error.localizedDescription)
+        }
+
+        if let downloadError = delegate.downloadMoveError {
+            throw downloadError
+        }
+
+        guard let response = delegate.response as? HTTPURLResponse else {
+            throw RemoteClientError.requestFailed(details: String(localized: "The WebDAV server returned an invalid HTTP response."))
+        }
+
+        guard acceptedStatusCodes.contains(response.statusCode) else {
+            throw webDAVError(response: response, body: delegate.receivedData)
+        }
+
+        return (delegate.receivedData, response)
+    }
+
+    private func authorizedRequest(
+        url: URL,
+        method: String,
+        headers: [String: String] = [:],
+        bodyData: Data? = nil
+    ) throws -> URLRequest {
+        _ = try validatedEndpointURL()
+        guard !config.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw RemoteClientError.requestFailed(details: String(localized: "The Username field is empty."))
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = Self.fileTransferTimeout
+        request.httpBody = bodyData
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+
+        let password = config.password ?? ""
+        let credentials = "\(config.username):\(password)"
+        let encodedCredentials = Data(credentials.utf8).base64EncodedString()
+        request.setValue("Basic \(encodedCredentials)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private func resourceURL(forRemotePath remotePath: String, isDirectoryHint: Bool?) throws -> URL {
+        let normalizedPath = normalizedRemotePath(remotePath)
+        var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false)
+        let basePath = endpointURL.path
+        let relativePath = normalizedPath == "/" ? "" : encodedRemotePath(normalizedPath)
+        var fullPath = basePath + relativePath
+        if fullPath.isEmpty {
+            fullPath = "/"
+        }
+        if isDirectoryHint == true && !fullPath.hasSuffix("/") {
+            fullPath += "/"
+        }
+        components?.percentEncodedPath = fullPath
+        guard let url = components?.url else {
+            throw RemoteClientError.requestFailed(details: String(localized: "Failed to build the WebDAV request URL."))
+        }
+        return url
+    }
+
+    private func encodedRemotePath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return "" }
+        return "/" + trimmed
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { encodeWebDAVPathComponent(String($0)) }
+            .joined(separator: "/")
+    }
+
+    private func encodeWebDAVPathComponent(_ component: String) -> String {
+        S3RequestSigner.uriEncode(component, encodeSlash: false)
+    }
+
+    private func normalizedRemotePath(_ path: String) -> String {
+        let standardized = NSString(string: path).standardizingPath
+        if standardized.isEmpty || standardized == "." {
+            return "/"
+        }
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func makeRemoteLocation(path: String) -> RemoteLocation {
+        let normalizedPath = normalizedRemotePath(path)
+        return RemoteLocation(
+            id: normalizedPath,
+            path: "dav://\(config.normalizedHost)\(normalizedPath)",
+            remotePath: normalizedPath,
+            directoryURL: nil
+        )
+    }
+
+    private func webDAVError(response: HTTPURLResponse, body: Data) -> RemoteClientError {
+        let bodyText = String(data: body, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch response.statusCode {
+        case 401:
+            return .requestFailed(details: String(localized: "WebDAV authentication failed for \(config.username)@\(config.normalizedHost):\(config.port). Verify the username and password."))
+        case 403:
+            return .requestFailed(details: String(localized: "The WebDAV server denied access to this path."))
+        case 404:
+            return .requestFailed(details: String(localized: "The requested WebDAV path was not found on the server."))
+        case 405:
+            return .requestFailed(details: String(localized: "The WebDAV server rejected this operation for the target path."))
+        case 409:
+            return .requestFailed(details: String(localized: "The WebDAV server reported a path conflict. Verify that the parent folder exists and the destination name is valid."))
+        case 412:
+            return .requestFailed(details: String(localized: "The WebDAV destination already exists."))
+        default:
+            let details = bodyText?.isEmpty == false
+                ? bodyText!
+                : HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+            return .requestFailed(details: String(localized: "WebDAV request failed (\(response.statusCode)): \(details)"))
+        }
+    }
+
+    private func validatedEndpointURL() throws -> URL {
+        if let endpointResolutionError {
+            throw endpointResolutionError
+        }
+        return endpointURL
     }
 }
 
@@ -1591,6 +2202,147 @@ private enum S3ListObjectsXMLParser {
     }
 }
 
+private enum WebDAVPROPFINDXMLParser {
+    static func parse(
+        data: Data,
+        endpointURL: URL,
+        requestedRemotePath: String
+    ) throws -> [BrowserItem] {
+        let document = try XMLNodeDocument.parse(data: data)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
+
+        let fallbackFormatter = ISO8601DateFormatter()
+        fallbackFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallbackFormatterWithoutFractions = ISO8601DateFormatter()
+
+        return document.nodes(named: "response").compactMap { node -> BrowserItem? in
+            guard let href = node.firstValue(named: "href") else { return nil }
+            guard let remotePath = logicalRemotePath(fromHref: href, endpointURL: endpointURL) else { return nil }
+            if remotePath == requestedRemotePath {
+                return nil
+            }
+
+            let isDirectory = node
+                .nodes(named: "resourcetype")
+                .contains { !$0.nodes(named: "collection").isEmpty }
+            let name = node.firstValue(named: "displayname").flatMap {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            } ?? {
+                let trimmed = remotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                return trimmed.isEmpty ? "/" : (trimmed as NSString).lastPathComponent
+            }()
+            let byteCount = Int64(node.firstValue(named: "getcontentlength") ?? "")
+            let modifiedText = node.firstValue(named: "getlastmodified")
+            let modifiedAt = modifiedText.flatMap {
+                formatter.date(from: $0)
+                    ?? fallbackFormatter.date(from: $0)
+                    ?? fallbackFormatterWithoutFractions.date(from: $0)
+            }
+
+            return BrowserItem(
+                id: remotePath,
+                name: name,
+                kind: webDAVFileKind(for: name, isDirectory: isDirectory),
+                byteCount: isDirectory ? nil : byteCount,
+                modifiedAt: modifiedAt,
+                sizeDescription: isDirectory ? "--" : webDAVSizeDescription(byteCount),
+                modifiedDescription: webDAVModifiedDescription(for: modifiedAt),
+                pathDescription: remotePath,
+                url: nil
+            )
+        }
+    }
+
+    private static func logicalRemotePath(fromHref href: String, endpointURL: URL) -> String? {
+        guard let hrefURL = URL(string: href, relativeTo: endpointURL)?.absoluteURL else {
+            return nil
+        }
+
+        let endpointPath = normalizedEndpointBasePath(endpointURL.path)
+        let absolutePath = normalizedPath(hrefURL.path)
+        let relativePath: String
+
+        if endpointPath == "/" {
+            relativePath = absolutePath
+        } else if absolutePath == endpointPath || absolutePath == endpointPath + "/" {
+            relativePath = "/"
+        } else if absolutePath.hasPrefix(endpointPath + "/") {
+            relativePath = String(absolutePath.dropFirst(endpointPath.count))
+        } else {
+            relativePath = absolutePath
+        }
+
+        return normalizedPath(relativePath.removingPercentEncoding ?? relativePath)
+    }
+
+    private static func normalizedEndpointBasePath(_ path: String) -> String {
+        if path.isEmpty || path == "/" {
+            return "/"
+        }
+        let standardized = NSString(string: path).standardizingPath
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        let standardized = NSString(string: path).standardizingPath
+        if standardized.isEmpty || standardized == "." {
+            return "/"
+        }
+        return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private static func webDAVFileKind(for name: String, isDirectory: Bool) -> FileKind {
+        if isDirectory {
+            return .folder
+        }
+
+        switch URL(fileURLWithPath: name).pathExtension.lowercased() {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "svg":
+            return .image
+        case "zip", "tar", "gz", "tgz", "rar", "7z", "xz":
+            return .archive
+        case "swift", "js", "ts", "json", "sh", "py", "rb", "go", "rs", "yml", "yaml", "toml":
+            return .code
+        default:
+            return .document
+        }
+    }
+
+    private static func webDAVSizeDescription(_ byteCount: Int64?) -> String {
+        guard let byteCount else { return "--" }
+        return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
+
+    private static func webDAVModifiedDescription(for date: Date?) -> String {
+        guard let date else { return "--" }
+
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+
+        if Calendar.current.isDateInToday(date) {
+            let timeFormatter = DateFormatter()
+            timeFormatter.timeStyle = .short
+            timeFormatter.dateStyle = .none
+            return "\(String(localized: "Today")), \(timeFormatter.string(from: date))"
+        }
+
+        if Calendar.current.isDateInYesterday(date) {
+            return String(localized: "Yesterday")
+        }
+
+        if abs(date.timeIntervalSinceNow) < 7 * 24 * 60 * 60 {
+            return formatter.localizedString(for: date, relativeTo: Date()).capitalized
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        return dateFormatter.string(from: date)
+    }
+}
+
 private struct XMLNodeDocument {
     fileprivate let root: XMLNode
 
@@ -1618,6 +2370,10 @@ private struct XMLNode {
     let name: String
     var value: String
     var children: [XMLNode]
+
+    func nodes(named target: String) -> [XMLNode] {
+        children.filter { $0.name == target }
+    }
 
     func allDescendants(named target: String) -> [XMLNode] {
         var matches: [XMLNode] = []
@@ -1648,7 +2404,7 @@ private final class XMLTreeParserDelegate: NSObject, XMLParserDelegate {
     private(set) var root: XMLNode?
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
-        stack.append(XMLNode(name: elementName, value: "", children: []))
+        stack.append(XMLNode(name: normalizedElementName(elementName, qualifiedName: qName), value: "", children: []))
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -1666,6 +2422,11 @@ private final class XMLTreeParserDelegate: NSObject, XMLParserDelegate {
         } else {
             stack[stack.count - 1].children.append(trimmed)
         }
+    }
+
+    private func normalizedElementName(_ elementName: String, qualifiedName: String?) -> String {
+        let rawName = qualifiedName ?? elementName
+        return rawName.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).last.map(String.init) ?? rawName
     }
 }
 
@@ -1906,11 +2667,9 @@ private final class CitadelSFTPSession: @unchecked Sendable {
             return connectedClient
         }
 
-        let connectHost: String
-        do {
-            connectHost = try config.resolvedConnectHost()
-        } catch {
-            throw normalizedError(error)
+        let connectHost = config.normalizedHost
+        guard !connectHost.isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The Host field is empty.")
         }
         let connectionTimeout = Self.connectionTimeout
         let connectionOperation = "Connecting to \(config.normalizedHost)"
@@ -2222,8 +2981,12 @@ private final class CitadelSFTPSession: @unchecked Sendable {
             guard let identity = importedDictionary[kSecImportItemIdentity as String] else {
                 return nil
             }
+            let identityRef = identity as CFTypeRef
+            guard CFGetTypeID(identityRef) == SecIdentityGetTypeID() else {
+                return nil
+            }
             var importedKey: SecKey?
-            let identityStatus = SecIdentityCopyPrivateKey((identity as! SecIdentity), &importedKey)
+            let identityStatus = SecIdentityCopyPrivateKey(unsafeBitCast(identityRef, to: SecIdentity.self), &importedKey)
             guard identityStatus == errSecSuccess, let importedKey else {
                 return nil
             }
@@ -2372,11 +3135,11 @@ private final class CitadelSFTPSession: @unchecked Sendable {
             let timeFormatter = DateFormatter()
             timeFormatter.timeStyle = .short
             timeFormatter.dateStyle = .none
-            return "Today, \(timeFormatter.string(from: date))"
+            return "\(String(localized: "Today")), \(timeFormatter.string(from: date))"
         }
 
         if Calendar.current.isDateInYesterday(date) {
-            return "Yesterday"
+            return String(localized: "Yesterday")
         }
 
         if abs(date.timeIntervalSinceNow) < 7 * 24 * 60 * 60 {
@@ -2706,6 +3469,35 @@ private func readSSHString(from buffer: inout ByteBuffer) -> Data? {
 }
 
 private extension RemoteConnectionConfig {
+    func resolvedWebDAVEndpointURL() throws -> URL {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw RemoteClientError.requestFailed(details: "The Host field is empty.")
+        }
+
+        let defaultScheme = port == 80 ? "http" : "https"
+        let rawEndpoint = trimmed.contains("://") ? trimmed : "\(defaultScheme)://\(trimmed)"
+        guard var components = URLComponents(string: rawEndpoint) else {
+            throw RemoteClientError.requestFailed(details: String(localized: "The WebDAV endpoint is not a valid URL."))
+        }
+        guard let resolvedHost = components.host, !resolvedHost.isEmpty else {
+            throw RemoteClientError.requestFailed(details: String(localized: "The WebDAV endpoint is missing a host name."))
+        }
+
+        if components.port == nil {
+            components.port = port
+        }
+        if components.path.isEmpty {
+            components.path = ""
+        }
+
+        guard let url = components.url else {
+            throw RemoteClientError.requestFailed(details: String(localized: "Failed to build the WebDAV endpoint URL."))
+        }
+        _ = resolvedHost
+        return url
+    }
+
     func resolvedHTTPEndpointURL() throws -> URL {
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

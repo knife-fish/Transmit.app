@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Combine
+import Darwin
 import Network
 
 struct ServerProfile: Identifiable, Hashable {
@@ -86,7 +87,7 @@ enum ConnectionKind: String, Hashable, CaseIterable, Codable {
         case .sftp:
             return String(localized: "SFTP")
         case .webdav:
-            return String(localized: "WEBDAV")
+            return String(localized: "WebDAV")
         case .cloud:
             return String(localized: "S3-Compatible")
         }
@@ -871,9 +872,9 @@ final class TransmitWorkspaceState: ObservableObject {
         switch place.destination {
         case .localDirectory(let url):
             focusedPane = .local
-            setLocalDirectory(url.standardizedFileURL, securityScopeRoot: url.standardizedFileURL)
-            localErrorMessage = nil
-            reloadDirectory(in: .local, selecting: nil)
+            guard openLocalDirectory(url.standardizedFileURL, title: place.title) else {
+                return
+            }
             transferFeedback = TransferFeedback(
                 message: String(localized: "Opened \(place.title) in Local."),
                 status: .completed
@@ -1350,6 +1351,10 @@ final class TransmitWorkspaceState: ObservableObject {
     }
 
     func selectServer(_ server: ServerProfile) {
+        if remoteSessionServerID != server.id && !isConnectedStatus(remoteSessionStatus) {
+            resetRemoteSession(showFeedback: false, displayHost: server.endpoint)
+            transferFeedback = nil
+        }
         selectedServer = server
         connectionDraft = Self.makeConnectionDraft(for: server, credentialStore: credentialStore)
         hasSavedPasswordForSelectedServer = Self.hasSavedPassword(for: server, credentialStore: credentialStore)
@@ -2494,10 +2499,6 @@ final class TransmitWorkspaceState: ObservableObject {
 
                         let sourceByteCount = try resolvedByteCount(for: sourceURL)
                         var uploadResult: RemoteUploadResult?
-                        var stagedByteCount: Int64 = 0
-                        var remoteByteCountValue: Int64?
-                        var uploadedByteCount: Int64 = 0
-                        let transportDescription = "remote client"
 
                         DispatchQueue.main.async {
                             self.replaceTransferActivity(
@@ -2520,7 +2521,6 @@ final class TransmitWorkspaceState: ObservableObject {
                                 try withSecurityScopedAccess(to: sourceURL) {
                                     let stagedURL = try stageUploadSource(at: sourceURL)
                                     defer { try? FileManager.default.removeItem(at: stagedURL) }
-                                    stagedByteCount = try resolvedByteCount(for: stagedURL)
                                     let result = try clientBox.client.uploadItem(
                                         at: stagedURL,
                                         to: destination,
@@ -2550,13 +2550,6 @@ final class TransmitWorkspaceState: ObservableObject {
                                         isCancelled: { cancellationController.isCancelled }
                                     )
                                     uploadResult = result
-                                    uploadedByteCount = stagedByteCount
-                                    remoteByteCountValue = try remoteByteCount(
-                                        named: result.destinationName,
-                                        at: destination,
-                                        using: clientBox.client,
-                                        expectedMinimumByteCount: uploadedByteCount
-                                    )
                                 }
                             }
                             try performUpload()
@@ -2565,14 +2558,6 @@ final class TransmitWorkspaceState: ObservableObject {
                         guard let result = uploadResult else {
                             throw CocoaError(.fileWriteUnknown)
                         }
-
-                        let uploadDiagnostics = uploadDiagnosticSummary(
-                            sourceByteCount: sourceByteCount,
-                            stagedByteCount: stagedByteCount,
-                            uploadedByteCount: uploadedByteCount,
-                            remoteByteCount: remoteByteCountValue,
-                            transportDescription: transportDescription
-                        )
 
                         recordSuccess(
                             name: result.destinationName,
@@ -2586,12 +2571,7 @@ final class TransmitWorkspaceState: ObservableObject {
                                 with: .init(
                                     id: activityID,
                                     title: result.destinationName,
-                                    detail: uploadActivityDetail(
-                                        diagnostics: uploadDiagnostics,
-                                        sourceByteCount: sourceByteCount,
-                                        uploadedByteCount: uploadedByteCount,
-                                        remoteByteCount: remoteByteCountValue
-                                    ),
+                                    detail: String(localized: "Uploaded to Remote"),
                                     progress: 1.0,
                                     status: .completed
                                 )
@@ -2700,17 +2680,17 @@ final class TransmitWorkspaceState: ObservableObject {
                 }
                 self.reloadRemoteDirectoryAsync(selecting: lastCopiedItemID)
 
-                if let batchActivityID {
-                    let batchStatus: TransferStatus
-                    let batchMessage: String
+                        if let batchActivityID {
+                            let batchStatus: TransferStatus
+                            let batchMessage: String
 
-                    if !failedSourceURLs.isEmpty {
-                        batchStatus = .failed
-                        batchMessage = transferBatchDetail(
-                            operation: "Upload",
-                            successCount: copiedNames.count,
-                            cancelledCount: cancelledNames.count,
-                            failedCount: failedSourceURLs.count
+                            if !failedSourceURLs.isEmpty {
+                                batchStatus = .failed
+                                batchMessage = transferBatchDetail(
+                                    operation: String(localized: "Upload"),
+                                    successCount: copiedNames.count,
+                                    cancelledCount: cancelledNames.count,
+                                    failedCount: failedSourceURLs.count
                         )
                         self.setTransferControl(
                             .init(
@@ -2724,7 +2704,7 @@ final class TransmitWorkspaceState: ObservableObject {
                     } else if !cancelledNames.isEmpty && copiedNames.isEmpty {
                         batchStatus = .cancelled
                         batchMessage = transferBatchDetail(
-                            operation: "Upload",
+                            operation: String(localized: "Upload"),
                             successCount: 0,
                             cancelledCount: cancelledNames.count,
                             failedCount: 0
@@ -2732,7 +2712,7 @@ final class TransmitWorkspaceState: ObservableObject {
                     } else {
                         batchStatus = .completed
                         batchMessage = transferBatchDetail(
-                            operation: "Upload",
+                            operation: String(localized: "Upload"),
                             successCount: copiedNames.count,
                             cancelledCount: cancelledNames.count,
                             failedCount: 0
@@ -3101,7 +3081,7 @@ final class TransmitWorkspaceState: ObservableObject {
                     if !failedItems.isEmpty {
                         batchStatus = .failed
                         batchMessage = transferBatchDetail(
-                            operation: "Download",
+                            operation: String(localized: "Download"),
                             successCount: copiedNames.count,
                             cancelledCount: cancelledNames.count,
                             failedCount: failedItems.count
@@ -3118,7 +3098,7 @@ final class TransmitWorkspaceState: ObservableObject {
                     } else if !cancelledNames.isEmpty && copiedNames.isEmpty {
                         batchStatus = .cancelled
                         batchMessage = transferBatchDetail(
-                            operation: "Download",
+                            operation: String(localized: "Download"),
                             successCount: 0,
                             cancelledCount: cancelledNames.count,
                             failedCount: 0
@@ -3126,7 +3106,7 @@ final class TransmitWorkspaceState: ObservableObject {
                     } else {
                         batchStatus = .completed
                         batchMessage = transferBatchDetail(
-                            operation: "Download",
+                            operation: String(localized: "Download"),
                             successCount: copiedNames.count,
                             cancelledCount: cancelledNames.count,
                             failedCount: 0
@@ -3375,6 +3355,77 @@ final class TransmitWorkspaceState: ObservableObject {
         syncDefaultPlaces()
     }
 
+    @discardableResult
+    private func openLocalDirectory(_ url: URL, title: String? = nil) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+
+        do {
+            _ = try localFileBrowser.loadItems(in: standardizedURL)
+            setLocalDirectory(standardizedURL)
+            localErrorMessage = nil
+            reloadDirectory(in: .local, selecting: nil)
+            return true
+        } catch {
+            guard isLocalDirectoryAuthorizationError(error) else {
+                setLocalDirectory(standardizedURL)
+                localErrorMessage = error.localizedDescription
+                reloadDirectory(in: .local, selecting: nil)
+                return false
+            }
+
+            return requestLocalDirectoryAccess(for: standardizedURL, title: title)
+        }
+    }
+
+    @discardableResult
+    private func requestLocalDirectoryAccess(for url: URL, title: String? = nil) -> Bool {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Grant Folder Access")
+        if let title, !title.isEmpty {
+            panel.message = String(localized: "Transmit needs permission to open \(title). Select a folder to grant access.")
+        } else {
+            panel.message = String(localized: "Transmit needs permission to open this folder. Select a folder to grant access.")
+        }
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.directoryURL = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+            ? url
+            : url.deletingLastPathComponent()
+
+        guard panel.runModal() == .OK, let selectedURL = panel.url?.standardizedFileURL else {
+            localErrorMessage = String(localized: "Folder access was not granted. Choose Folder to authorize a local directory.")
+            return false
+        }
+
+        setLocalDirectory(selectedURL, securityScopeRoot: selectedURL)
+        localErrorMessage = nil
+        reloadDirectory(in: .local, selecting: nil)
+        return true
+    }
+
+    private func isLocalDirectoryAuthorizationError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            let code = CocoaError.Code(rawValue: nsError.code)
+            if code == .fileReadNoPermission || code == .fileWriteNoPermission {
+                return true
+            }
+        }
+
+        if nsError.domain == NSPOSIXErrorDomain {
+            return nsError.code == EACCES || nsError.code == EPERM
+        }
+
+        if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return isLocalDirectoryAuthorizationError(underlyingError)
+        }
+
+        let message = error.localizedDescription.lowercased()
+        return message.contains("permission") || message.contains("not permitted")
+    }
+
     private func syncDefaultPlaces() {
         let favorites = places.filter(\.isFavorite)
         places = favorites + Self.defaultPlaces(currentLocalDirectory: localDirectoryURL)
@@ -3577,34 +3628,6 @@ private func remoteByteCount(
     return nil
 }
 
-private func uploadDiagnosticSummary(
-    sourceByteCount: Int64,
-    stagedByteCount: Int64,
-    uploadedByteCount: Int64,
-    remoteByteCount: Int64?,
-    transportDescription: String
-) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    let sourceText = formatter.string(fromByteCount: sourceByteCount)
-    let stagedText = formatter.string(fromByteCount: stagedByteCount)
-    let uploadedText = formatter.string(fromByteCount: uploadedByteCount)
-    let remoteText = remoteByteCount.map { formatter.string(fromByteCount: $0) } ?? String(localized: "Unknown")
-    return String(localized: "\(transportDescription): source \(sourceText) -> staging \(stagedText) -> sent \(uploadedText) -> remote \(remoteText)")
-}
-
-private func uploadActivityDetail(
-    diagnostics: String,
-    sourceByteCount: Int64,
-    uploadedByteCount: Int64,
-    remoteByteCount: Int64?
-) -> String {
-    if sourceByteCount > 0, uploadedByteCount == sourceByteCount, remoteByteCount == 0 {
-        return String(localized: "Upload sent successfully; remote size is still catching up. \(diagnostics)")
-    }
-    return diagnostics
-}
-
 extension TransmitWorkspaceState {
     static func hasSavedPassword(
         for server: ServerProfile?,
@@ -3691,7 +3714,20 @@ extension TransmitWorkspaceState {
             )
         case .webdav:
             return RemoteSessionServices(
-                client: MockRemoteClient(localFileBrowser: localFileBrowser, displayHost: draft.host.isEmpty ? server.endpoint : draft.host)
+                client: LibraryBackedWebDAVRemoteClient(
+                    config: RemoteConnectionConfig(
+                        connectionKind: .webdav,
+                        host: draft.host,
+                        port: Int(draft.port) ?? server.port,
+                        username: draft.username,
+                        authenticationMode: .password,
+                        privateKeyPath: nil,
+                        publicKeyPath: nil,
+                        password: draft.password.isEmpty ? nil : draft.password,
+                        addressPreference: draft.addressPreference,
+                        s3Region: nil
+                    )
+                )
             )
         }
     }
@@ -3724,7 +3760,7 @@ extension TransmitWorkspaceState {
 
     static func defaultPlaces(currentLocalDirectory: URL) -> [PlaceItem] {
         let fileManager = FileManager.default
-        let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
+        let homeDirectory = actualUserHomeDirectory(fileManager: fileManager)
         let desktopDirectory = fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first?.standardizedFileURL
         let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL
         let downloadsDirectory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first?.standardizedFileURL
@@ -3871,4 +3907,16 @@ extension TransmitWorkspaceState {
         return false
     }
 
+}
+
+private func actualUserHomeDirectory(fileManager: FileManager) -> URL {
+    if let homeDirectory = fileManager.homeDirectory(forUser: NSUserName())?.standardizedFileURL {
+        return homeDirectory
+    }
+
+    guard let passwordEntry = getpwuid(getuid()), let homePath = passwordEntry.pointee.pw_dir else {
+        return fileManager.homeDirectoryForCurrentUser.standardizedFileURL
+    }
+
+    return URL(fileURLWithPath: String(cString: homePath), isDirectory: true).standardizedFileURL
 }

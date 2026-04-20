@@ -130,6 +130,7 @@
       }
     },
     "%@: source %@ -> staging %@ -> sent %@ -> remote %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1053,6 +1054,9 @@
         }
       }
     },
+    "Connected (%@)" : {
+
+    },
     "Connected remote session: %@" : {
       "localizations" : {
         "en" : {
@@ -1809,6 +1813,9 @@
         }
       }
     },
+    "Download" : {
+
+    },
     "Download batch completed with failures." : {
       "localizations" : {
         "en" : {
@@ -2097,6 +2104,15 @@
         }
       }
     },
+    "Failed (%@)" : {
+
+    },
+    "Failed to build the WebDAV endpoint URL." : {
+
+    },
+    "Failed to build the WebDAV request URL." : {
+
+    },
     "Favorite Name" : {
       "localizations" : {
         "en" : {
@@ -2160,6 +2176,9 @@
           }
         }
       }
+    },
+    "Folder access was not granted. Choose Folder to authorize a local directory." : {
+
     },
     "Folder Empty" : {
       "localizations" : {
@@ -2272,6 +2291,9 @@
           }
         }
       }
+    },
+    "Grant Folder Access" : {
+
     },
     "Hide Info" : {
       "localizations" : {
@@ -4390,6 +4412,7 @@
       }
     },
     "Site" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4613,6 +4636,9 @@
         }
       }
     },
+    "The requested WebDAV path was not found on the server." : {
+
+    },
     "The selected SSH key will be used for passwordless login." : {
       "localizations" : {
         "en" : {
@@ -4644,6 +4670,30 @@
           }
         }
       }
+    },
+    "The Username field is empty." : {
+
+    },
+    "The WebDAV destination already exists." : {
+
+    },
+    "The WebDAV endpoint is missing a host name." : {
+
+    },
+    "The WebDAV endpoint is not a valid URL." : {
+
+    },
+    "The WebDAV server denied access to this path." : {
+
+    },
+    "The WebDAV server rejected this operation for the target path." : {
+
+    },
+    "The WebDAV server reported a path conflict. Verify that the parent folder exists and the destination name is valid." : {
+
+    },
+    "The WebDAV server returned an invalid HTTP response." : {
+
     },
     "This directory does not contain any visible files yet." : {
       "localizations" : {
@@ -4789,6 +4839,12 @@
         }
       }
     },
+    "Transmit needs permission to open %@. Select a folder to grant access." : {
+
+    },
+    "Transmit needs permission to open this folder. Select a folder to grant access." : {
+
+    },
     "Typed in draft" : {
       "localizations" : {
         "en" : {
@@ -4854,6 +4910,7 @@
       }
     },
     "Unknown" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4918,7 +4975,6 @@
       }
     },
     "Upload" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5015,6 +5071,7 @@
       }
     },
     "Upload sent successfully; remote size is still catching up. %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5061,6 +5118,9 @@
           }
         }
       }
+    },
+    "Uploaded to Remote" : {
+
     },
     "us-east-1" : {
 
@@ -5161,7 +5221,11 @@
         }
       }
     },
+    "WebDAV" : {
+
+    },
     "WEBDAV" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5173,6 +5237,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "WebDAV"
+          }
+        }
+      }
+    },
+    "WebDAV authentication failed for %@@%@:%lld. Verify the username and password." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "WebDAV authentication failed for %1$@@%2$@:%3$lld. Verify the username and password."
+          }
+        }
+      }
+    },
+    "WebDAV request failed (%lld): %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "WebDAV request failed (%1$lld): %2$@"
           }
         }
       }

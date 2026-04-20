@@ -1552,30 +1552,30 @@ private struct InspectorView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         if !prefersActivityLayout {
-                            Text("Inspector")
+                            Text(String(localized: "Inspector"))
                                 .font(.title3.weight(.semibold))
 
                             if highlightsActivity {
-                                Label("Transfer activity is in progress.", systemImage: "bolt.badge.clock")
+                                Label(String(localized: "Transfer activity is in progress."), systemImage: "bolt.badge.clock")
                                     .font(.caption.weight(.medium))
                                     .foregroundStyle(.orange)
                             }
 
                             inspectorSection("Workspace") {
-                                inspectorValueRow("Focused Pane", value: focusedPane.title)
-                                inspectorValueRow("Favorites", value: "\(favoriteCount)")
-                                inspectorValueRow("Transfer Slots", value: "\(maxConcurrentTransfers)")
-                                inspectorValueRow("Local Folder", value: localPath, prominent: false, monospace: true)
+                                inspectorValueRow(String(localized: "Focused Pane"), value: focusedPane.title)
+                                inspectorValueRow(String(localized: "Favorites"), value: "\(favoriteCount)")
+                                inspectorValueRow(String(localized: "Transfer Slots"), value: "\(maxConcurrentTransfers)")
+                                inspectorValueRow(String(localized: "Local Folder"), value: localPath, prominent: false, monospace: true)
                                 if let activeRemoteServer {
-                                    inspectorValueRow("Active Site", value: activeRemoteServer.name)
+                                    inspectorValueRow(String(localized: "Active Site"), value: activeRemoteServer.name)
                                 }
-                                inspectorValueRow("Remote Folder", value: remotePath, prominent: false, monospace: true)
+                                inspectorValueRow(String(localized: "Remote Folder"), value: remotePath, prominent: false, monospace: true)
 
                                 if let remoteHomePath {
-                                    inspectorValueRow("Remote Home", value: remoteHomePath, prominent: false, monospace: true)
+                                    inspectorValueRow(String(localized: "Remote Home"), value: remoteHomePath, prominent: false, monospace: true)
                                 }
 
-                                inspectorValueRow("Remote Status", value: remoteStatusSummary)
+                                inspectorValueRow(String(localized: "Remote Status"), value: remoteStatusSummary)
                                 siteSummarySection
                             }
 
@@ -1584,10 +1584,10 @@ private struct InspectorView: View {
 
                         inspectorSection(prefersActivityLayout ? "Selected" : "Selection") {
                             if let item {
-                                inspectorValueRow("Name", value: item.name)
-                                inspectorValueRow("Path", value: item.pathDescription, prominent: false, monospace: true)
+                                inspectorValueRow(String(localized: "Name"), value: item.name)
+                                inspectorValueRow(String(localized: "Path"), value: item.pathDescription, prominent: false, monospace: true)
                             } else {
-                                Text("Select a file or folder to inspect metadata and transfer context.")
+                                Text(String(localized: "Select a file or folder to inspect metadata and transfer context."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1604,16 +1604,16 @@ private struct InspectorView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text("Activity")
+                            Text(String(localized: "Activity"))
                                 .font(.headline)
                             Spacer()
                             if hasCompletedTransfers {
-                                Button("Clear Completed") {
+                                Button(String(localized: "Clear Completed")) {
                                     clearCompletedTransfers()
                                 }
                                 .font(.caption)
                                 .buttonStyle(.link)
-                                .help("Remove completed transfers from the activity list.")
+                                .help(String(localized: "Remove completed transfers from the activity list."))
                             }
                             Text(activitySummary)
                                 .font(.caption)
@@ -1621,7 +1621,7 @@ private struct InspectorView: View {
                         }
 
                         if recentTransfers.isEmpty {
-                            Text("No transfer activity yet.")
+                            Text(String(localized: "No transfer activity yet."))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -1632,36 +1632,36 @@ private struct InspectorView: View {
                                             .font(.subheadline.weight(.medium))
                                         Spacer()
                                         if canRetryTransfer(transfer.id) {
-                                            Button("Retry", systemImage: "arrow.clockwise") {
+                                            Button(String(localized: "Retry"), systemImage: "arrow.clockwise") {
                                                 retryTransfer(transfer.id)
                                             }
                                             .labelStyle(.iconOnly)
                                             .buttonStyle(.plain)
-                                            .help("Retry this transfer.")
+                                            .help(String(localized: "Retry this transfer."))
                                         }
                                         if canPauseTransfer(transfer.id) {
-                                            Button("Pause", systemImage: "pause") {
+                                            Button(String(localized: "Pause"), systemImage: "pause") {
                                                 pauseTransfer(transfer.id)
                                             }
                                             .labelStyle(.iconOnly)
                                             .buttonStyle(.plain)
-                                            .help("Pause this transfer.")
+                                            .help(String(localized: "Pause this transfer."))
                                         }
                                         if canResumeTransfer(transfer.id) {
-                                            Button("Resume", systemImage: "play.fill") {
+                                            Button(String(localized: "Resume"), systemImage: "play.fill") {
                                                 resumeTransfer(transfer.id)
                                             }
                                             .labelStyle(.iconOnly)
                                             .buttonStyle(.plain)
-                                            .help("Resume this transfer.")
+                                            .help(String(localized: "Resume this transfer."))
                                         }
                                         if canCancelTransfer(transfer.id) {
-                                            Button("Cancel", systemImage: "xmark") {
+                                            Button(String(localized: "Cancel"), systemImage: "xmark") {
                                                 cancelTransfer(transfer.id)
                                             }
                                             .labelStyle(.iconOnly)
                                             .buttonStyle(.plain)
-                                            .help("Cancel this transfer.")
+                                            .help(String(localized: "Cancel this transfer."))
                                         }
                                         Label(transfer.status.label, systemImage: transfer.status.systemImage)
                                             .font(.caption)
@@ -1700,13 +1700,13 @@ private struct InspectorView: View {
     private var remoteStatusSummary: String {
         switch remoteSessionStatus {
         case .idle:
-            return "Idle"
+            return String(localized: "Idle")
         case .connecting:
-            return "Connecting"
+            return String(localized: "Connecting")
         case .connected(let details):
-            return "Connected (\(details))"
+            return String(localized: "Connected (\(details))")
         case .failed(let message):
-            return "Failed (\(message))"
+            return String(localized: "Failed (\(message))")
         }
     }
 
@@ -1871,6 +1871,34 @@ private struct InspectorView: View {
 
     @ViewBuilder
     private func inspectorValueRow(
+        _ label: String,
+        value: String,
+        prominent: Bool = true,
+        monospace: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            if monospace {
+                Text(value)
+                    .font((prominent ? Font.callout.weight(.medium) : .caption).monospaced())
+                    .foregroundStyle(prominent ? .primary : .secondary)
+                    .textSelection(.enabled)
+            } else {
+                Text(value)
+                    .font(prominent ? .callout.weight(.medium) : .caption)
+                    .foregroundStyle(prominent ? .primary : .secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func inspectorValueRow(
         _ label: LocalizedStringKey,
         value: String,
         prominent: Bool = true,
@@ -1916,7 +1944,7 @@ private struct ToolbarContentView: ToolbarContent {
                 Button {
                     state.openFocusedSelection()
                 } label: {
-                    Label("Open", systemImage: "arrow.right.circle")
+                    Label(String(localized: "Open"), systemImage: "arrow.right.circle")
                 }
                 .disabled(state.focusedPane == .remote && state.isRemoteBusy)
 
@@ -1924,7 +1952,7 @@ private struct ToolbarContentView: ToolbarContent {
                     Button(role: .destructive) {
                         state.disconnectRemoteSession()
                     } label: {
-                        Label("Disconnect", systemImage: "bolt.slash")
+                        Label(String(localized: "Disconnect"), systemImage: "bolt.slash")
                     }
                 }
 
@@ -1933,14 +1961,14 @@ private struct ToolbarContentView: ToolbarContent {
                 Button {
                     state.beginRenamingFocusedSelection()
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Label(String(localized: "Rename"), systemImage: "pencil")
                 }
                 .disabled(!state.canRenameFocusedSelection || (state.focusedPane == .remote && state.isRemoteBusy))
 
                 Button(role: .destructive) {
                     state.requestDeleteFocusedSelection()
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label(String(localized: "Delete"), systemImage: "trash")
                 }
                 .disabled(!state.canDeleteFocusedSelection || (state.focusedPane == .remote && state.isRemoteBusy))
 
@@ -1949,13 +1977,13 @@ private struct ToolbarContentView: ToolbarContent {
                 Button {
                     state.addCurrentLocalDirectoryToFavorites()
                 } label: {
-                    Label("Add to Favorites", systemImage: "star")
+                    Label(String(localized: "Add to Favorites"), systemImage: "star")
                 }
                 .disabled(state.focusedPane != .local)
             } label: {
-                Label("Actions", systemImage: "ellipsis.circle")
+                Label(String(localized: "Actions"), systemImage: "ellipsis.circle")
             }
-            .help("Show less common file and workspace actions.")
+            .help(String(localized: "Show less common file and workspace actions."))
 
             Menu {
                 ForEach(BrowserDensityMode.allCases, id: \.self) { mode in
@@ -1968,30 +1996,30 @@ private struct ToolbarContentView: ToolbarContent {
 
                 Divider()
 
-                Menu("Transfer Concurrency") {
+                Menu(String(localized: "Transfer Concurrency")) {
                     ForEach(1...6, id: \.self) { value in
                         Button {
                             state.setMaxConcurrentTransfers(value)
                         } label: {
                             Label(
-                                value == 1 ? "1 transfer" : "\(value) transfers",
+                                value == 1 ? String(localized: "1 transfer") : String(localized: "\(value) transfers"),
                                 systemImage: state.maxConcurrentTransfers == value ? "checkmark" : "circle"
                             )
                         }
                     }
                 }
             } label: {
-                Label("View", systemImage: "rectangle.3.group")
+                Label(String(localized: "View"), systemImage: "rectangle.3.group")
             }
-            .help("Adjust browser density.")
+            .help(String(localized: "Adjust browser density."))
 
             Button {
                 state.toggleInspectorVisibility()
             } label: {
-                Label(state.showsInspector ? "Hide Info" : "Show Info", systemImage: "sidebar.right")
+                Label(state.showsInspector ? String(localized: "Hide Info") : String(localized: "Show Info"), systemImage: "sidebar.right")
             }
             .labelStyle(.iconOnly)
-            .help(state.showsInspector ? "Hide the inspector sidebar." : "Show the inspector sidebar.")
+            .help(state.showsInspector ? String(localized: "Hide the inspector sidebar.") : String(localized: "Show the inspector sidebar."))
         }
     }
 }
@@ -2122,170 +2150,131 @@ private struct ConnectionSheet: View {
     let onCancel: () -> Void
     let onConnect: () -> Void
 
+    @State private var showsAdvancedSettings = false
+    @State private var lastSuggestedPort = ""
+    @State private var lastAnalyzedHost = ""
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(selectedServer?.name ?? (draft.name.isEmpty ? String(localized: "Quick Connect") : draft.name))
-                .font(.title3.weight(.semibold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(selectedServer?.name ?? (draft.name.isEmpty ? String(localized: "Quick Connect") : draft.name))
+                    .font(.title3.weight(.semibold))
 
-            Text(selectedServer != nil ? String(localized: "Saved site configuration") : String(localized: "Remote site configuration"))
-                .foregroundStyle(.secondary)
-
-            if !servers.isEmpty {
-                Picker("Server", selection: selectedServerIDBinding) {
-                    ForEach(servers) { server in
-                        Text("\(server.name) · \(server.connectionKind.title)").tag(Optional(server.id))
-                    }
-                }
-                .help(String(localized: "Switch the active remote profile before connecting."))
-            }
-
-            TextField("Site Name", text: $draft.name)
-                .textFieldStyle(.roundedBorder)
-                .help(String(localized: "Optional label used in the site list."))
-
-            Picker("Protocol", selection: $draft.connectionKind) {
-                ForEach(ConnectionKind.allCases, id: \.self) { kind in
-                    Text(kind.title).tag(kind)
-                }
-            }
-            .help(String(localized: "Protocol used for this saved site."))
-
-            TextField(hostFieldTitle, text: $draft.host)
-                .textFieldStyle(.roundedBorder)
-                .help(hostFieldHelp)
-
-            HStack {
-                TextField("Port", text: $draft.port)
-                    .textFieldStyle(.roundedBorder)
-                    .help(String(localized: "Network port used for the remote protocol."))
-                TextField(accountFieldTitle, text: $draft.username)
-                    .textFieldStyle(.roundedBorder)
-                    .help(accountFieldHelp)
-            }
-
-            if draft.connectionKind != .cloud {
-                Picker("Authentication", selection: $draft.authenticationMode) {
-                    ForEach(ConnectionAuthenticationMode.allCases, id: \.self) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .help(String(localized: "Choose whether SFTP should use an account password or an SSH private key."))
-            }
-
-            if draft.authenticationMode == .sshKey {
-                VStack(alignment: .leading, spacing: 8) {
-                    keyPathField(
-                        title: String(localized: "Private Key"),
-                        placeholder: String(localized: "Required .pem or OpenSSH private key"),
-                        value: $draft.privateKeyPath,
-                        choose: choosePrivateKey
-                    )
-                    keyPathField(
-                        title: String(localized: "Public Key"),
-                        placeholder: String(localized: "Optional matching public key"),
-                        value: $draft.publicKeyPath,
-                        choose: choosePublicKey
-                    )
-                }
-            }
-
-            SecureField(secretFieldTitle, text: passwordBinding)
-                .textFieldStyle(.roundedBorder)
-                .help(secretFieldHelp)
-
-            DisclosureGroup("Advanced") {
-                VStack(alignment: .leading, spacing: 12) {
-                    if draft.connectionKind == .cloud {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Region")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("us-east-1", text: $draft.s3Region)
-                                .textFieldStyle(.roundedBorder)
-                                .help(String(localized: "AWS signing region for this S3-compatible endpoint. Change this if the server rejects signatures for us-east-1."))
-                        }
-                    }
-
-                    Picker("Addressing", selection: $draft.addressPreference) {
-                        ForEach(ConnectionAddressPreference.allCases, id: \.self) { preference in
-                            Text(preference.title).tag(preference)
-                        }
-                    }
-                    .help(String(localized: "Choose whether remote connections should prefer IPv4, IPv6, or let the resolver decide."))
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Default Local Folder")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            TextField("Optional local folder", text: $draft.defaultLocalDirectoryPath)
-                                .textFieldStyle(.roundedBorder)
-                                .help(String(localized: "Optional local folder to open automatically after a successful connection."))
-                            Button("Choose…") {
-                                chooseDefaultLocalFolder()
-                            }
-                            .help(String(localized: "Pick a local folder to open after connecting."))
-                            Button("Use Current") {
-                                draft.defaultLocalDirectoryPath = currentLocalPath
-                            }
-                            .help(String(localized: "Use the local folder currently open in the workspace."))
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Default Remote Folder")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            TextField("Optional remote folder", text: $draft.defaultRemotePath)
-                                .textFieldStyle(.roundedBorder)
-                                .help(String(localized: "Optional remote folder to open automatically after a successful connection."))
-                            Button("Use Current") {
-                                draft.defaultRemotePath = currentRemotePath
-                            }
-                            .help(String(localized: "Use the remote folder currently open in the workspace."))
-                        }
-                    }
-                }
-                .padding(.top, 8)
-            }
-            .help(String(localized: "Show optional network and default-folder settings."))
-
-            if selectedServer != nil {
-                Text(savedPasswordStatusText)
-                    .font(.caption)
+                Text(selectedServer != nil ? String(localized: "Saved site configuration") : String(localized: "Remote site configuration"))
                     .foregroundStyle(.secondary)
 
-                Button(clearSavedSecretButtonTitle) {
-                    onClearSavedPassword()
+                if !servers.isEmpty {
+                    Picker("Server", selection: selectedServerIDBinding) {
+                        ForEach(servers) { server in
+                            Text("\(server.name) · \(server.connectionKind.title)").tag(Optional(server.id))
+                        }
+                    }
+                    .help(String(localized: "Switch the active remote profile before connecting."))
                 }
-                .buttonStyle(.link)
-                .help(clearSavedSecretHelpText)
-            }
 
-            statusView
+                TextField(String(localized: "Site Name"), text: $draft.name)
+                    .textFieldStyle(.roundedBorder)
+                    .help(String(localized: "Optional label used in the site list."))
 
-            HStack {
-                Spacer()
-                Button(selectedServer == nil ? "Save Site" : "Update Site") {
-                    onSave()
+                Picker("Protocol", selection: $draft.connectionKind) {
+                    ForEach(ConnectionKind.allCases, id: \.self) { kind in
+                        Text(kind.title).tag(kind)
+                    }
                 }
-                .disabled(draft.host.isEmpty || draft.username.isEmpty || isMissingRequiredAuthentication)
-                .help(String(localized: "Save this site so it appears in the sidebar for future sessions."))
-                Button("Cancel") {
-                    onCancel()
+                .help(String(localized: "Protocol used for this saved site."))
+
+                TextField(hostFieldTitle, text: $draft.host)
+                    .textFieldStyle(.roundedBorder)
+                    .help(hostFieldHelp)
+
+                HStack {
+                    TextField(String(localized: "Port"), text: $draft.port)
+                        .textFieldStyle(.roundedBorder)
+                        .help(String(localized: "Network port used for the remote protocol."))
+                    TextField(accountFieldTitle, text: $draft.username)
+                        .textFieldStyle(.roundedBorder)
+                        .help(accountFieldHelp)
                 }
-                .help(String(localized: "Close this connection sheet without changing the session."))
-                Button("Connect") {
-                    onConnect()
+
+                if draft.connectionKind != .cloud {
+                    Picker("Authentication", selection: $draft.authenticationMode) {
+                        ForEach(ConnectionAuthenticationMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .help(String(localized: "Choose whether SFTP should use an account password or an SSH private key."))
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.host.isEmpty || draft.username.isEmpty || status == .connecting || isMissingRequiredAuthentication)
-                .help(String(localized: "Start a remote connection with the current form values."))
+
+                if draft.authenticationMode == .sshKey {
+                    VStack(alignment: .leading, spacing: 8) {
+                        keyPathField(
+                            title: String(localized: "Private Key"),
+                            placeholder: String(localized: "Required .pem or OpenSSH private key"),
+                            value: $draft.privateKeyPath,
+                            choose: choosePrivateKey
+                        )
+                        keyPathField(
+                            title: String(localized: "Public Key"),
+                            placeholder: String(localized: "Optional matching public key"),
+                            value: $draft.publicKeyPath,
+                            choose: choosePublicKey
+                        )
+                    }
+                }
+
+                SecureField(secretFieldTitle, text: passwordBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .help(secretFieldHelp)
+
+                advancedSection
+
+                if selectedServer != nil {
+                    Text(savedPasswordStatusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button(clearSavedSecretButtonTitle) {
+                        onClearSavedPassword()
+                    }
+                    .buttonStyle(.link)
+                    .help(clearSavedSecretHelpText)
+                }
+
+                statusView
+
+                HStack {
+                    Spacer()
+                    Button(selectedServer == nil ? String(localized: "Save Site") : String(localized: "Update Site")) {
+                        onSave()
+                    }
+                    .disabled(draft.host.isEmpty || draft.username.isEmpty || isMissingRequiredAuthentication)
+                    .help(String(localized: "Save this site so it appears in the sidebar for future sessions."))
+                    Button(String(localized: "Cancel")) {
+                        onCancel()
+                    }
+                    .help(String(localized: "Close this connection sheet without changing the session."))
+                    Button(String(localized: "Connect")) {
+                        onConnect()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(draft.host.isEmpty || draft.username.isEmpty || status == .connecting || isMissingRequiredAuthentication)
+                    .help(String(localized: "Start a remote connection with the current form values."))
+                }
             }
+            .padding(20)
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 440, height: 560)
+        .onAppear {
+            lastAnalyzedHost = draft.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastSuggestedPort = draft.port
+        }
+        .onChange(of: draft.host) { _, newValue in
+            applyHostPortSuggestionIfNeeded(for: newValue)
+        }
+        .onChange(of: draft.connectionKind) { _, _ in
+            lastSuggestedPort = draft.port
+        }
     }
 
     private var selectedServerIDBinding: Binding<ServerProfile.ID?> {
@@ -2307,6 +2296,182 @@ private struct ConnectionSheet: View {
                 draft.clearsSavedPassword = false
             }
         )
+    }
+
+    @ViewBuilder
+    private var advancedSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    showsAdvancedSettings.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: showsAdvancedSettings ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(String(localized: "Advanced"))
+                        .font(.body.weight(.medium))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 9)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "Show optional network and default-folder settings."))
+
+            if showsAdvancedSettings {
+                VStack(alignment: .leading, spacing: 12) {
+                    if draft.connectionKind == .cloud {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(String(localized: "Region"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("us-east-1", text: $draft.s3Region)
+                                .textFieldStyle(.roundedBorder)
+                                .help(String(localized: "AWS signing region for this S3-compatible endpoint. Change this if the server rejects signatures for us-east-1."))
+                        }
+                    }
+
+                    Picker("Addressing", selection: $draft.addressPreference) {
+                        ForEach(ConnectionAddressPreference.allCases, id: \.self) { preference in
+                            Text(preference.title).tag(preference)
+                        }
+                    }
+                    .help(String(localized: "Choose whether remote connections should prefer IPv4, IPv6, or let the resolver decide."))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "Default Local Folder"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField(String(localized: "Optional local folder"), text: $draft.defaultLocalDirectoryPath)
+                                .textFieldStyle(.roundedBorder)
+                                .help(String(localized: "Optional local folder to open automatically after a successful connection."))
+                            Button(String(localized: "Choose…")) {
+                                chooseDefaultLocalFolder()
+                            }
+                            .help(String(localized: "Pick a local folder to open after connecting."))
+                            Button(String(localized: "Use Current")) {
+                                draft.defaultLocalDirectoryPath = currentLocalPath
+                            }
+                            .help(String(localized: "Use the local folder currently open in the workspace."))
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "Default Remote Folder"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField(String(localized: "Optional remote folder"), text: $draft.defaultRemotePath)
+                                .textFieldStyle(.roundedBorder)
+                                .help(String(localized: "Optional remote folder to open automatically after a successful connection."))
+                            Button(String(localized: "Use Current")) {
+                                draft.defaultRemotePath = currentRemotePath
+                            }
+                            .help(String(localized: "Use the remote folder currently open in the workspace."))
+                        }
+                    }
+                }
+                .padding(.leading, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private func applyHostPortSuggestionIfNeeded(for newHostValue: String) {
+        let trimmedHost = newHostValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedHost != lastAnalyzedHost else { return }
+        lastAnalyzedHost = trimmedHost
+
+        let analysis = analyzeEndpointDraft(draft.host, connectionKind: draft.connectionKind)
+
+        if let explicitPort = analysis.explicitPort {
+            let explicitPortText = String(explicitPort)
+            if draft.port != explicitPortText {
+                draft.port = explicitPortText
+            }
+            lastSuggestedPort = explicitPortText
+            return
+        }
+
+        let suggestedPort = String(analysis.suggestedPort)
+        let shouldApplyDefault = draft.port.isEmpty || draft.port == lastSuggestedPort
+        if shouldApplyDefault, draft.port != suggestedPort {
+            draft.port = suggestedPort
+        }
+        lastSuggestedPort = suggestedPort
+    }
+
+    private func analyzeEndpointDraft(_ rawValue: String, connectionKind: ConnectionKind) -> (normalizedHost: String, explicitPort: Int?, suggestedPort: Int) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ("", nil, defaultPort(for: connectionKind))
+        }
+
+        let fallbackScheme: String
+        switch connectionKind {
+        case .sftp:
+            fallbackScheme = "sftp"
+        case .webdav:
+            fallbackScheme = "http"
+        case .cloud:
+            fallbackScheme = "https"
+        }
+
+        let rawEndpoint = trimmed.contains("://") ? trimmed : "\(fallbackScheme)://\(trimmed)"
+        if var components = URLComponents(string: rawEndpoint), let host = components.host, !host.isEmpty {
+            let explicitPort = components.port
+            let normalizedScheme = components.scheme?.lowercased()
+            let suggestedPort: Int
+            switch normalizedScheme {
+            case "http":
+                suggestedPort = 80
+            case "https":
+                suggestedPort = 443
+            case "sftp":
+                suggestedPort = 22
+            default:
+                suggestedPort = defaultPort(for: connectionKind)
+            }
+
+            components.port = nil
+            let normalizedHost: String
+            if trimmed.contains("://") {
+                normalizedHost = components.string ?? trimmed
+            } else {
+                var reconstructed = host
+                if !components.path.isEmpty {
+                    reconstructed += components.path
+                }
+                if let query = components.percentEncodedQuery, !query.isEmpty {
+                    reconstructed += "?\(query)"
+                }
+                if let fragment = components.percentEncodedFragment, !fragment.isEmpty {
+                    reconstructed += "#\(fragment)"
+                }
+                normalizedHost = reconstructed
+            }
+
+            return (normalizedHost, explicitPort, suggestedPort)
+        }
+
+        return (trimmed, nil, defaultPort(for: connectionKind))
+    }
+
+    private func defaultPort(for connectionKind: ConnectionKind) -> Int {
+        switch connectionKind {
+        case .sftp:
+            return 22
+        case .webdav:
+            return 80
+        case .cloud:
+            return 443
+        }
     }
 
     private var hostFieldTitle: String {
@@ -2546,14 +2711,14 @@ private struct RemotePathSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Go to Remote Folder")
+            Text(String(localized: "Go to Remote Folder"))
                 .font(.title3.weight(.semibold))
 
-            Text("Jump directly to a remote directory without stepping through each level.")
+            Text(String(localized: "Jump directly to a remote directory without stepping through each level."))
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Current")
+                Text(String(localized: "Current"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(currentPath)
@@ -2563,7 +2728,7 @@ private struct RemotePathSheet: View {
 
             if let homePath {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Home")
+                    Text(String(localized: "Home"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(homePath)
@@ -2572,18 +2737,18 @@ private struct RemotePathSheet: View {
                 }
             }
 
-            TextField("Remote path", text: $draft)
+            TextField(String(localized: "Remote path"), text: $draft)
                 .textFieldStyle(.roundedBorder)
-                .help("Enter an absolute path like /srv or use ~ to jump to the remote home directory.")
+                .help(String(localized: "Enter an absolute path like /srv or use ~ to jump to the remote home directory."))
 
             HStack {
-                Button("Home", action: onJumpHome)
+                Button(String(localized: "Home"), action: onJumpHome)
                     .disabled(isBusy)
-                Button("Root", action: onJumpRoot)
+                Button(String(localized: "Root"), action: onJumpRoot)
                     .disabled(isBusy)
                 Spacer()
-                Button("Cancel", action: onCancel)
-                Button("Open", action: onCommit)
+                Button(String(localized: "Cancel"), action: onCancel)
+                Button(String(localized: "Open"), action: onCommit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(isBusy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -2609,26 +2774,26 @@ private struct RenameSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename Item")
+            Text(String(localized: "Rename Item"))
                 .font(.title3.weight(.semibold))
 
-            Text("Update the name for \(request.originalName).")
+            Text(String(localized: "Update the name for \(request.originalName)."))
                 .foregroundStyle(.secondary)
 
-            TextField("Name", text: $proposedName)
+            TextField(String(localized: "Name"), text: $proposedName)
                 .textFieldStyle(.roundedBorder)
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                Button(String(localized: "Cancel")) {
                     onCancel()
                 }
-                .help("Close rename without changing the item name.")
-                Button("Rename") {
+                .help(String(localized: "Close rename without changing the item name."))
+                Button(String(localized: "Rename")) {
                     onCommit(proposedName)
                 }
                 .keyboardShortcut(.defaultAction)
-                .help("Apply the new item name.")
+                .help(String(localized: "Apply the new item name."))
             }
         }
         .padding(20)
@@ -2652,27 +2817,27 @@ private struct CreateFolderSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("New Folder")
+            Text(String(localized: "New Folder"))
                 .font(.title3.weight(.semibold))
 
-            Text("Create a folder in \(request.pane.title).")
+            Text(String(localized: "Create a folder in \(request.pane.title)."))
                 .foregroundStyle(.secondary)
 
-            TextField("Folder Name", text: $proposedName)
+            TextField(String(localized: "Folder Name"), text: $proposedName)
                 .textFieldStyle(.roundedBorder)
-                .help("Name for the new folder.")
+                .help(String(localized: "Name for the new folder."))
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                Button(String(localized: "Cancel")) {
                     onCancel()
                 }
-                .help("Close folder creation without making changes.")
-                Button("Create") {
+                .help(String(localized: "Close folder creation without making changes."))
+                Button(String(localized: "Create")) {
                     onCommit(proposedName)
                 }
                 .keyboardShortcut(.defaultAction)
-                .help("Create the folder with the current name.")
+                .help(String(localized: "Create the folder with the current name."))
             }
         }
         .padding(20)
@@ -2696,20 +2861,20 @@ private struct FavoriteRenameSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename Favorite")
+            Text(String(localized: "Rename Favorite"))
                 .font(.title3.weight(.semibold))
 
-            Text("Update the sidebar label for \(request.originalName).")
+            Text(String(localized: "Update the sidebar label for \(request.originalName)."))
                 .foregroundStyle(.secondary)
 
-            TextField("Favorite Name", text: $proposedName)
+            TextField(String(localized: "Favorite Name"), text: $proposedName)
                 .textFieldStyle(.roundedBorder)
-                .help("Custom label shown in the Favorites section.")
+                .help(String(localized: "Custom label shown in the Favorites section."))
 
             HStack {
                 Spacer()
-                Button("Cancel", action: onCancel)
-                Button("Save") {
+                Button(String(localized: "Cancel"), action: onCancel)
+                Button(String(localized: "Save")) {
                     onCommit(proposedName)
                 }
                 .keyboardShortcut(.defaultAction)
