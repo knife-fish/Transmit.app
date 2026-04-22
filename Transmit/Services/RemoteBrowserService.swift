@@ -145,8 +145,11 @@ struct MockRemoteClient: RemoteClient {
         )
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
-        try LocalFileTransferService().deleteItem(at: URL(fileURLWithPath: remotePath))
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
+        try LocalFileTransferService().deleteItem(
+            at: URL(fileURLWithPath: remotePath),
+            recursively: recursively
+        )
     }
 
     private func copyFileWithProgress(

@@ -129,6 +129,22 @@
         }
       }
     },
+    "%@ is not empty. Delete this folder and everything inside it?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ is not empty. Delete this folder and everything inside it?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 不是空文件夹。要删除此文件夹及其中的全部内容吗？"
+          }
+        }
+      }
+    },
     "%@ queue to %@: " : {
       "localizations" : {
         "en" : {
@@ -1692,6 +1708,22 @@
         }
       }
     },
+    "Delete %@ and Contents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete %1$@ and Contents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除 %1$@ 及其内容"
+          }
+        }
+      }
+    },
     "Delete failed: %@" : {
       "localizations" : {
         "en" : {
@@ -1709,6 +1741,7 @@
       }
     },
     "Delete failed: remote folders currently require the directory to be empty." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1720,6 +1753,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除失败：当前删除远程文件夹前必须保证其为空。"
+          }
+        }
+      }
+    },
+    "Delete Folder Contents?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Folder Contents?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除文件夹内容？"
           }
         }
       }

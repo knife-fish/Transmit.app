@@ -401,6 +401,13 @@ struct DeleteRequest: Identifiable, Equatable {
     let itemName: String
 }
 
+struct NonEmptyFolderDeleteRequest: Identifiable, Equatable {
+    let id = UUID()
+    let pane: BrowserPane
+    let itemID: BrowserItem.ID
+    let itemName: String
+}
+
 struct DeleteServerRequest: Identifiable, Equatable {
     let id = UUID()
     let server: ServerProfile
@@ -529,6 +536,7 @@ final class TransmitWorkspaceState: ObservableObject {
     @Published var transferFeedback: TransferFeedback?
     @Published var renameRequest: RenameRequest?
     @Published var deleteRequest: DeleteRequest?
+    @Published var nonEmptyFolderDeleteRequest: NonEmptyFolderDeleteRequest?
     @Published var deleteServerRequest: DeleteServerRequest?
     @Published var createFolderRequest: CreateFolderRequest?
     @Published var favoriteRenameRequest: FavoritePlaceRenameRequest?
@@ -1836,75 +1844,100 @@ final class TransmitWorkspaceState: ObservableObject {
             return
         }
 
-        switch deleteRequest.pane {
-        case .local:
-            guard let sourceURL = item.url else {
-                self.deleteRequest = nil
-                return
-            }
+        self.deleteRequest = nil
 
-            do {
-                try localFileTransfer.deleteItem(at: sourceURL)
-                reloadDirectory(in: deleteRequest.pane, selecting: nil)
-                transferFeedback = TransferFeedback(
-                    message: String(localized: "Deleted \(deleteRequest.itemName)."),
-                    status: .completed
-                )
-            } catch {
-                transferFeedback = TransferFeedback(
-                    message: String(localized: "Delete failed: \(error.localizedDescription)"),
-                    status: .failed
-                )
-            }
-        case .remote:
-            let clientBox = SendableRemoteClientBox(remoteClient)
-            let itemName = deleteRequest.itemName
-            let remotePath = item.pathDescription
-            let isDirectory = item.isDirectory
-            beginRemoteActivity()
-            remoteWorkQueue.async {
-                let result: Result<Void, Error>
-                do {
-                    try clientBox.client.deleteItem(
-                        named: itemName,
-                        at: remotePath,
-                        isDirectory: isDirectory
+        if item.isDirectory {
+            switch deleteRequest.pane {
+            case .local:
+                guard let sourceURL = item.url else { return }
+                if localFileTransfer.directoryHasContents(at: sourceURL) {
+                    nonEmptyFolderDeleteRequest = NonEmptyFolderDeleteRequest(
+                        pane: deleteRequest.pane,
+                        itemID: deleteRequest.itemID,
+                        itemName: deleteRequest.itemName
                     )
-                    result = .success(())
-                } catch {
-                    result = .failure(error)
+                    return
+                }
+                performLocalDelete(item: item, request: deleteRequest, recursively: false)
+            case .remote:
+                guard let location = remoteClient.location(for: item, from: remoteLocation) else {
+                    performRemoteDelete(item: item, request: deleteRequest, recursively: false)
+                    return
                 }
 
-                DispatchQueue.main.async {
-                    self.endRemoteActivity()
-                    switch result {
-                    case .success:
-                        self.reloadRemoteDirectoryAsync(selecting: nil)
-                        self.transferFeedback = TransferFeedback(
-                            message: String(localized: "Deleted \(itemName) from Remote."),
-                            status: .completed
-                        )
-                    case .failure(let error):
-                        let message: String
-                        if isDirectory {
-                            message = String(localized: "Delete failed: remote folders currently require the directory to be empty.")
-                        } else {
-                            message = String(localized: "Delete failed: \(error.localizedDescription)")
+                let clientBox = SendableRemoteClientBox(remoteClient)
+                beginRemoteActivity()
+                remoteWorkQueue.async {
+                    let result: Result<Bool, Error>
+                    do {
+                        result = .success(try !clientBox.client.loadItems(in: location).isEmpty)
+                    } catch {
+                        result = .failure(error)
+                    }
+
+                    DispatchQueue.main.async {
+                        self.endRemoteActivity()
+                        switch result {
+                        case .success(let hasContents):
+                            if hasContents {
+                                self.nonEmptyFolderDeleteRequest = NonEmptyFolderDeleteRequest(
+                                    pane: deleteRequest.pane,
+                                    itemID: deleteRequest.itemID,
+                                    itemName: deleteRequest.itemName
+                                )
+                            } else {
+                                self.performRemoteDelete(item: item, request: deleteRequest, recursively: false)
+                            }
+                        case .failure(let error):
+                            self.transferFeedback = TransferFeedback(
+                                message: String(localized: "Delete failed: \(error.localizedDescription)"),
+                                status: .failed
+                            )
                         }
-                        self.transferFeedback = TransferFeedback(
-                            message: message,
-                            status: .failed
-                        )
                     }
                 }
             }
+            return
         }
 
-        self.deleteRequest = nil
+        switch deleteRequest.pane {
+        case .local:
+            performLocalDelete(item: item, request: deleteRequest, recursively: false)
+        case .remote:
+            performRemoteDelete(item: item, request: deleteRequest, recursively: false)
+        }
     }
 
     func cancelDeleteRequest() {
         deleteRequest = nil
+    }
+
+    func confirmNonEmptyFolderDeleteRequest() {
+        guard
+            let request = nonEmptyFolderDeleteRequest,
+            let item = item(for: request.pane, id: request.itemID)
+        else {
+            nonEmptyFolderDeleteRequest = nil
+            return
+        }
+
+        let deleteRequest = DeleteRequest(
+            pane: request.pane,
+            itemID: request.itemID,
+            itemName: request.itemName
+        )
+        nonEmptyFolderDeleteRequest = nil
+
+        switch request.pane {
+        case .local:
+            performLocalDelete(item: item, request: deleteRequest, recursively: true)
+        case .remote:
+            performRemoteDelete(item: item, request: deleteRequest, recursively: true)
+        }
+    }
+
+    func cancelNonEmptyFolderDeleteRequest() {
+        nonEmptyFolderDeleteRequest = nil
     }
 
     func submitCreateFolderRequest() {
@@ -3564,6 +3597,63 @@ final class TransmitWorkspaceState: ObservableObject {
             return "/"
         }
         return standardized.hasPrefix("/") ? standardized : "/\(standardized)"
+    }
+
+    private func performLocalDelete(item: BrowserItem, request: DeleteRequest, recursively: Bool) {
+        guard let sourceURL = item.url else { return }
+
+        do {
+            try localFileTransfer.deleteItem(at: sourceURL, recursively: recursively)
+            reloadDirectory(in: request.pane, selecting: nil)
+            transferFeedback = TransferFeedback(
+                message: String(localized: "Deleted \(request.itemName)."),
+                status: .completed
+            )
+        } catch {
+            transferFeedback = TransferFeedback(
+                message: String(localized: "Delete failed: \(error.localizedDescription)"),
+                status: .failed
+            )
+        }
+    }
+
+    private func performRemoteDelete(item: BrowserItem, request: DeleteRequest, recursively: Bool) {
+        let clientBox = SendableRemoteClientBox(remoteClient)
+        let itemName = request.itemName
+        let remotePath = item.pathDescription
+        let isDirectory = item.isDirectory
+        beginRemoteActivity()
+        remoteWorkQueue.async {
+            let result: Result<Void, Error>
+            do {
+                try clientBox.client.deleteItem(
+                    named: itemName,
+                    at: remotePath,
+                    isDirectory: isDirectory,
+                    recursively: recursively
+                )
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+
+            DispatchQueue.main.async {
+                self.endRemoteActivity()
+                switch result {
+                case .success:
+                    self.reloadRemoteDirectoryAsync(selecting: nil)
+                    self.transferFeedback = TransferFeedback(
+                        message: String(localized: "Deleted \(itemName) from Remote."),
+                        status: .completed
+                    )
+                case .failure(let error):
+                    self.transferFeedback = TransferFeedback(
+                        message: String(localized: "Delete failed: \(error.localizedDescription)"),
+                        status: .failed
+                    )
+                }
+            }
+        }
     }
 
     private func beginRemoteActivity() {

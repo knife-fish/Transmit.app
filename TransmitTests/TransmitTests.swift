@@ -166,8 +166,11 @@ private final class TestRemoteClient: RemoteClient, @unchecked Sendable {
         )
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
-        try LocalFileTransferService().deleteItem(at: URL(fileURLWithPath: remotePath))
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
+        try LocalFileTransferService().deleteItem(
+            at: URL(fileURLWithPath: remotePath),
+            recursively: recursively
+        )
     }
 
     private func copyFileWithProgress(
@@ -939,6 +942,91 @@ struct TransmitTests {
         try await MainActor.run {
             #expect(!state.remoteItems.contains(where: { $0.id == sourceFileURL.path(percentEncoded: false) }))
             #expect(state.transferFeedback?.message.contains("obsolete.txt") == true)
+        }
+
+        try? FileManager.default.removeItem(at: baseURL)
+    }
+
+    @Test func deleteRequestRequiresExtraConfirmationForNonEmptyLocalFolder() async throws {
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let localURL = baseURL.appendingPathComponent("Local", isDirectory: true)
+        let remoteURL = baseURL.appendingPathComponent("Remote", isDirectory: true)
+        let folderURL = localURL.appendingPathComponent("Archive", isDirectory: true)
+        let childURL = folderURL.appendingPathComponent("note.txt")
+
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: remoteURL, withIntermediateDirectories: true)
+        try "keep me until confirmed".write(to: childURL, atomically: true, encoding: .utf8)
+
+        let state = await MainActor.run {
+            TransmitWorkspaceState(
+                localFileBrowser: LocalFileBrowserService(),
+                localFileTransfer: LocalFileTransferService(),
+                initialLocalDirectoryURL: localURL,
+                initialRemoteDirectoryURL: remoteURL
+            )
+        }
+
+        try await MainActor.run {
+            state.selectLocalItem(id: folderURL.path(percentEncoded: false))
+            state.requestDeleteFocusedSelection()
+            state.confirmDeleteRequest()
+
+            #expect(state.nonEmptyFolderDeleteRequest?.itemName == "Archive")
+            #expect(FileManager.default.fileExists(atPath: folderURL.path(percentEncoded: false)))
+
+            state.confirmNonEmptyFolderDeleteRequest()
+
+            #expect(state.nonEmptyFolderDeleteRequest == nil)
+            #expect(!FileManager.default.fileExists(atPath: folderURL.path(percentEncoded: false)))
+        }
+
+        try? FileManager.default.removeItem(at: baseURL)
+    }
+
+    @Test func remoteDeleteRequestRequiresExtraConfirmationForNonEmptyFolder() async throws {
+        let baseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let localURL = baseURL.appendingPathComponent("Local", isDirectory: true)
+        let remoteURL = baseURL.appendingPathComponent("Remote", isDirectory: true)
+        let folderURL = remoteURL.appendingPathComponent("Archive", isDirectory: true)
+        let childURL = folderURL.appendingPathComponent("note.txt")
+
+        try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try "delete me after recursive confirm".write(to: childURL, atomically: true, encoding: .utf8)
+
+        let state = await MainActor.run {
+            TransmitWorkspaceState(
+                localFileBrowser: LocalFileBrowserService(),
+                localFileTransfer: LocalFileTransferService(),
+                initialLocalDirectoryURL: localURL,
+                initialRemoteDirectoryURL: remoteURL
+            )
+        }
+
+        await MainActor.run {
+            state.selectRemoteItem(id: folderURL.path(percentEncoded: false))
+            state.requestDeleteFocusedSelection()
+            state.confirmDeleteRequest()
+        }
+
+        try await eventually {
+            state.nonEmptyFolderDeleteRequest?.itemName == "Archive"
+        }
+
+        await MainActor.run {
+            state.confirmNonEmptyFolderDeleteRequest()
+        }
+
+        try await eventually {
+            !FileManager.default.fileExists(atPath: folderURL.path(percentEncoded: false))
+        }
+
+        try await MainActor.run {
+            #expect(state.nonEmptyFolderDeleteRequest == nil)
+            #expect(state.transferFeedback?.message.contains("Archive") == true)
         }
 
         try? FileManager.default.removeItem(at: baseURL)
@@ -2353,13 +2441,15 @@ struct TransmitTests {
                 privateKeyPath: nil,
                 publicKeyPath: nil,
                 password: "secret",
-                addressPreference: .automatic
+                addressPreference: .automatic,
+                s3Region: nil
             )
         )
 
         let location = client.makeInitialLocation(relativeTo: FileManager.default.temporaryDirectory)
 
-        #expect(location.path == "sftp://example.com/")
+        #expect(location.path == "sftp://example.com/~")
+        #expect(location.remotePath == ".")
     }
 
     @Test func cloudRemoteSessionFactoryUsesS3Client() async throws {
@@ -2588,7 +2678,8 @@ struct TransmitTests {
                 privateKeyPath: nil,
                 publicKeyPath: nil,
                 password: "secret",
-                addressPreference: .automatic
+                addressPreference: .automatic,
+                s3Region: nil
             ),
             transport: session
         )
@@ -2831,7 +2922,8 @@ private func makeMockedS3Session(
             privateKeyPath: nil,
             publicKeyPath: nil,
             password: "secret",
-            addressPreference: .automatic
+            addressPreference: .automatic,
+            s3Region: nil
         ),
         urlSessionConfiguration: configuration,
         now: { Date(timeIntervalSince1970: 1_713_513_600) }
@@ -3034,8 +3126,8 @@ private struct ProgressReportingRemoteClient: RemoteClient {
         try wrapped.renameItem(named: originalName, at: remotePath, to: proposedName)
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
-        try wrapped.deleteItem(named: name, at: remotePath, isDirectory: isDirectory)
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
+        try wrapped.deleteItem(named: name, at: remotePath, isDirectory: isDirectory, recursively: recursively)
     }
 }
 
@@ -3125,7 +3217,7 @@ private struct FlakyUploadRemoteClient: RemoteClient {
         try wrapped.renameItem(named: originalName, at: remotePath, to: proposedName)
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
-        try wrapped.deleteItem(named: name, at: remotePath, isDirectory: isDirectory)
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
+        try wrapped.deleteItem(named: name, at: remotePath, isDirectory: isDirectory, recursively: recursively)
     }
 }

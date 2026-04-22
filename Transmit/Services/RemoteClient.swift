@@ -53,7 +53,7 @@ protocol RemoteClient {
     ) throws -> LocalFileTransferResult
     func createDirectory(named proposedName: String, in remoteLocation: RemoteLocation) throws -> RemoteMutationResult
     func renameItem(named originalName: String, at remotePath: String, to proposedName: String) throws -> RemoteMutationResult
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws
 }
 
 extension RemoteClient {

@@ -47,8 +47,28 @@ struct LocalFileTransferService {
         return destinationURL
     }
 
-    func deleteItem(at sourceURL: URL) throws {
+    func deleteItem(at sourceURL: URL, recursively: Bool = true) throws {
+        if !recursively, directoryHasContents(at: sourceURL) {
+            throw CocoaError(.fileWriteUnknown)
+        }
         try FileManager.default.removeItem(at: sourceURL)
+    }
+
+    func directoryHasContents(at directoryURL: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+
+        guard let enumerator = FileManager.default.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return false
+        }
+
+        return enumerator.nextObject() != nil
     }
 
     func createDirectory(named proposedName: String, in directoryURL: URL, uniquingIfNeeded: Bool = false) throws -> URL {

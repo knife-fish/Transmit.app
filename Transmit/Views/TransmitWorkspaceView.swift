@@ -128,148 +128,11 @@ struct TransmitWorkspaceView: View {
                 }
 
                 HSplitView {
-                    BrowserPaneView(
-                        title: BrowserPane.local.title,
-                        path: state.localPathDisplayName,
-                        items: state.localItems,
-                        density: state.browserDensity,
-                        selectedItemIDs: $state.selectedLocalItemIDs,
-                        selectedItemID: $state.selectedLocalItemID,
-                        focusedPane: $state.focusedPane,
-                        errorMessage: state.localErrorMessage,
-                        canNavigateUp: state.canNavigateToLocalParent,
-                        remoteSessionStatus: state.remoteSessionStatus,
-                        isNetworkReachable: state.isNetworkReachable,
-                        isBusy: false,
-                        sortOption: state.localBrowserSort,
-                        pane: .local,
-                        showsChooseDirectoryButton: true,
-                        showsRemotePathButton: false
-                    ) {
-                        state.navigateToLocalParent()
-                    } onRefresh: {
-                        state.refreshLocalDirectory()
-                    } onOpenSelection: {
-                        state.openLocalSelection()
-                    } onTransferSelection: {
-                        state.copyFocusedSelectionToOtherPane()
-                    } onCreateFolder: {
-                        state.beginCreatingFolderInFocusedPane()
-                    } onSelectionSetChange: { ids in
-                        state.selectLocalItems(ids: ids)
-                    } onSelectionChange: { id in
-                        state.selectLocalItem(id: id)
-                    } onDropLocalItems: { items in
-                        state.handleDrop(of: items, into: .local)
-                    } onDropRemoteItems: { items in
-                        state.handleRemoteDrop(of: items, into: .local)
-                    } onDropLocalItemsIntoDirectory: { items, itemID in
-                        state.handleDrop(of: items, into: .local, targetItemID: itemID)
-                    } onDropRemoteItemsIntoDirectory: { items, itemID in
-                        state.handleRemoteDrop(of: items, into: .local, targetItemID: itemID)
-                    } onBeginDrag: { items in
-                        state.beginLocalDrag(items: items)
-                    } onBeginRename: { itemID in
-                        state.beginRenaming(itemID: itemID, in: .local)
-                    } onRequestDelete: { itemID in
-                        state.requestDelete(itemID: itemID, in: .local)
-                    } onChooseDirectory: {
-                        state.chooseLocalDirectory()
-                    } onPresentRemotePathSheet: {
-                    } onJumpRemoteHome: {
-                    } onJumpRemoteRoot: {
-                    } onSortChange: { sort in
-                        state.setBrowserSort(sort, for: .local)
-                    }
-
-                    BrowserPaneView(
-                        title: state.activeRemoteServer?.name ?? state.selectedServer?.name ?? BrowserPane.remote.title,
-                        path: state.remotePathDisplayName,
-                        items: state.remoteItems,
-                        density: state.browserDensity,
-                        selectedItemIDs: $state.selectedRemoteItemIDs,
-                        selectedItemID: $state.selectedRemoteItemID,
-                        focusedPane: $state.focusedPane,
-                        errorMessage: state.remoteErrorMessage,
-                        canNavigateUp: state.canNavigateToRemoteParent,
-                        remoteSessionStatus: state.remoteSessionStatus,
-                        isNetworkReachable: state.isNetworkReachable,
-                        isBusy: state.isRemoteBusy,
-                        sortOption: state.remoteBrowserSort,
-                        pane: .remote,
-                        showsChooseDirectoryButton: false,
-                        showsRemotePathButton: true
-                    ) {
-                        state.navigateToRemoteParent()
-                    } onRefresh: {
-                        state.refreshRemoteDirectory()
-                    } onOpenSelection: {
-                        state.openRemoteSelection()
-                    } onTransferSelection: {
-                        state.copyFocusedSelectionToOtherPane()
-                    } onCreateFolder: {
-                        state.beginCreatingFolderInFocusedPane()
-                    } onSelectionSetChange: { ids in
-                        state.selectRemoteItems(ids: ids)
-                    } onSelectionChange: { id in
-                        state.selectRemoteItem(id: id)
-                    } onDropLocalItems: { items in
-                        state.handleDrop(of: state.resolveLocalDragURLs(fallingBackTo: items), into: .remote)
-                    } onDropRemoteItems: { items in
-                        state.handleRemoteDrop(of: items, into: .remote)
-                    } onDropLocalItemsIntoDirectory: { items, itemID in
-                        state.handleDrop(
-                            of: state.resolveLocalDragURLs(fallingBackTo: items),
-                            into: .remote,
-                            targetItemID: itemID
-                        )
-                    } onDropRemoteItemsIntoDirectory: { items, itemID in
-                        state.handleRemoteDrop(of: items, into: .remote, targetItemID: itemID)
-                    } onBeginDrag: { _ in
-                    } onBeginRename: { itemID in
-                        state.beginRenaming(itemID: itemID, in: .remote)
-                    } onRequestDelete: { itemID in
-                        state.requestDelete(itemID: itemID, in: .remote)
-                    } onChooseDirectory: {
-                    } onPresentRemotePathSheet: {
-                        state.presentRemotePathSheet()
-                    } onJumpRemoteHome: {
-                        state.jumpToRemoteHomeDirectory()
-                    } onJumpRemoteRoot: {
-                        state.jumpToRemoteRootDirectory()
-                    } onSortChange: { sort in
-                        state.setBrowserSort(sort, for: .remote)
-                    }
+                    localBrowserPane
+                    remoteBrowserPane
 
                     if state.showsInspector {
-                        InspectorView(
-                            focusedPane: state.focusedPane,
-                            selectedServer: state.selectedServer,
-                            activeRemoteServer: state.activeRemoteServer,
-                            showsConnectionSheet: state.showsConnectionSheet,
-                            connectionDraft: state.connectionDraft,
-                            hasSavedPasswordForSelectedServer: state.hasSavedPasswordForSelectedServer,
-                            remoteSessionStatus: state.remoteSessionStatus,
-                            localPath: state.localPathDisplayName,
-                            remotePath: state.remotePathDisplayName,
-                            remoteHomePath: state.remoteHomePath,
-                            favoriteCount: state.favoritePlaces.count,
-                            maxConcurrentTransfers: state.maxConcurrentTransfers,
-                            item: state.selectedItem,
-                            recentTransfers: state.recentTransfers,
-                            highlightsActivity: state.isRemoteBusy,
-                            canRetryTransfer: state.canRetryTransferActivity,
-                            canCancelTransfer: state.canCancelTransferActivity,
-                            canPauseTransfer: state.canPauseTransferActivity,
-                            canResumeTransfer: state.canResumeTransferActivity,
-                            hasCompletedTransfers: state.hasCompletedTransferActivities,
-                            retryTransfer: state.retryTransferActivity,
-                            cancelTransfer: state.cancelTransferActivity,
-                            pauseTransfer: state.pauseTransferActivity,
-                            resumeTransfer: state.resumeTransferActivity,
-                            clearCompletedTransfers: state.clearCompletedTransferActivities
-                        )
-                        .frame(minWidth: 260, idealWidth: 280, maxWidth: 320)
+                        inspectorPane
                     }
                 }
             }
@@ -381,6 +244,27 @@ struct TransmitWorkspaceView: View {
                 Text(String(localized: "This permanently deletes \(request.itemName) from the current pane."))
             }
             .confirmationDialog(
+                "Delete Folder Contents?",
+                isPresented: Binding(
+                    get: { state.nonEmptyFolderDeleteRequest != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            state.cancelNonEmptyFolderDeleteRequest()
+                        }
+                    }
+                ),
+                presenting: state.nonEmptyFolderDeleteRequest
+            ) { request in
+                Button(String(localized: "Delete \(request.itemName) and Contents"), role: .destructive) {
+                    state.confirmNonEmptyFolderDeleteRequest()
+                }
+                Button("Cancel", role: .cancel) {
+                    state.cancelNonEmptyFolderDeleteRequest()
+                }
+            } message: { request in
+                Text(String(localized: "\(request.itemName) is not empty. Delete this folder and everything inside it?"))
+            }
+            .confirmationDialog(
                 "Delete Site?",
                 isPresented: Binding(
                     get: { state.deleteServerRequest != nil },
@@ -425,6 +309,154 @@ struct TransmitWorkspaceView: View {
             } message: { request in
                 Text(conflictResolutionMessage(for: request))
             }
+        }
+    }
+
+    private var inspectorPane: some View {
+        InspectorView(
+            focusedPane: state.focusedPane,
+            selectedServer: state.selectedServer,
+            activeRemoteServer: state.activeRemoteServer,
+            showsConnectionSheet: state.showsConnectionSheet,
+            connectionDraft: state.connectionDraft,
+            hasSavedPasswordForSelectedServer: state.hasSavedPasswordForSelectedServer,
+            remoteSessionStatus: state.remoteSessionStatus,
+            localPath: state.localPathDisplayName,
+            remotePath: state.remotePathDisplayName,
+            remoteHomePath: state.remoteHomePath,
+            favoriteCount: state.favoritePlaces.count,
+            maxConcurrentTransfers: state.maxConcurrentTransfers,
+            item: state.selectedItem,
+            recentTransfers: state.recentTransfers,
+            highlightsActivity: state.isRemoteBusy,
+            canRetryTransfer: state.canRetryTransferActivity,
+            canCancelTransfer: state.canCancelTransferActivity,
+            canPauseTransfer: state.canPauseTransferActivity,
+            canResumeTransfer: state.canResumeTransferActivity,
+            hasCompletedTransfers: state.hasCompletedTransferActivities,
+            retryTransfer: state.retryTransferActivity,
+            cancelTransfer: state.cancelTransferActivity,
+            pauseTransfer: state.pauseTransferActivity,
+            resumeTransfer: state.resumeTransferActivity,
+            clearCompletedTransfers: state.clearCompletedTransferActivities
+        )
+        .frame(minWidth: 260, idealWidth: 280, maxWidth: 320)
+    }
+
+    private var localBrowserPane: some View {
+        BrowserPaneView(
+            title: BrowserPane.local.title,
+            path: state.localPathDisplayName,
+            items: state.localItems,
+            density: state.browserDensity,
+            selectedItemIDs: $state.selectedLocalItemIDs,
+            selectedItemID: $state.selectedLocalItemID,
+            focusedPane: $state.focusedPane,
+            errorMessage: state.localErrorMessage,
+            canNavigateUp: state.canNavigateToLocalParent,
+            remoteSessionStatus: state.remoteSessionStatus,
+            isNetworkReachable: state.isNetworkReachable,
+            isBusy: false,
+            sortOption: state.localBrowserSort,
+            pane: .local,
+            showsChooseDirectoryButton: true,
+            showsRemotePathButton: false
+        ) {
+            state.navigateToLocalParent()
+        } onRefresh: {
+            state.refreshLocalDirectory()
+        } onOpenSelection: {
+            state.openLocalSelection()
+        } onTransferSelection: {
+            state.copyFocusedSelectionToOtherPane()
+        } onCreateFolder: {
+            state.beginCreatingFolderInFocusedPane()
+        } onSelectionSetChange: { ids in
+            state.selectLocalItems(ids: ids)
+        } onSelectionChange: { id in
+            state.selectLocalItem(id: id)
+        } onDropLocalItems: { items in
+            state.handleDrop(of: items, into: .local)
+        } onDropRemoteItems: { items in
+            state.handleRemoteDrop(of: items, into: .local)
+        } onDropLocalItemsIntoDirectory: { items, itemID in
+            state.handleDrop(of: items, into: .local, targetItemID: itemID)
+        } onDropRemoteItemsIntoDirectory: { items, itemID in
+            state.handleRemoteDrop(of: items, into: .local, targetItemID: itemID)
+        } onBeginDrag: { items in
+            state.beginLocalDrag(items: items)
+        } onBeginRename: { itemID in
+            state.beginRenaming(itemID: itemID, in: .local)
+        } onRequestDelete: { itemID in
+            state.requestDelete(itemID: itemID, in: .local)
+        } onChooseDirectory: {
+            state.chooseLocalDirectory()
+        } onPresentRemotePathSheet: {
+        } onJumpRemoteHome: {
+        } onJumpRemoteRoot: {
+        } onSortChange: { sort in
+            state.setBrowserSort(sort, for: .local)
+        }
+    }
+
+    private var remoteBrowserPane: some View {
+        BrowserPaneView(
+            title: state.activeRemoteServer?.name ?? state.selectedServer?.name ?? BrowserPane.remote.title,
+            path: state.remotePathDisplayName,
+            items: state.remoteItems,
+            density: state.browserDensity,
+            selectedItemIDs: $state.selectedRemoteItemIDs,
+            selectedItemID: $state.selectedRemoteItemID,
+            focusedPane: $state.focusedPane,
+            errorMessage: state.remoteErrorMessage,
+            canNavigateUp: state.canNavigateToRemoteParent,
+            remoteSessionStatus: state.remoteSessionStatus,
+            isNetworkReachable: state.isNetworkReachable,
+            isBusy: state.isRemoteBusy,
+            sortOption: state.remoteBrowserSort,
+            pane: .remote,
+            showsChooseDirectoryButton: false,
+            showsRemotePathButton: true
+        ) {
+            state.navigateToRemoteParent()
+        } onRefresh: {
+            state.refreshRemoteDirectory()
+        } onOpenSelection: {
+            state.openRemoteSelection()
+        } onTransferSelection: {
+            state.copyFocusedSelectionToOtherPane()
+        } onCreateFolder: {
+            state.beginCreatingFolderInFocusedPane()
+        } onSelectionSetChange: { ids in
+            state.selectRemoteItems(ids: ids)
+        } onSelectionChange: { id in
+            state.selectRemoteItem(id: id)
+        } onDropLocalItems: { items in
+            state.handleDrop(of: state.resolveLocalDragURLs(fallingBackTo: items), into: .remote)
+        } onDropRemoteItems: { items in
+            state.handleRemoteDrop(of: items, into: .remote)
+        } onDropLocalItemsIntoDirectory: { items, itemID in
+            state.handleDrop(
+                of: state.resolveLocalDragURLs(fallingBackTo: items),
+                into: .remote,
+                targetItemID: itemID
+            )
+        } onDropRemoteItemsIntoDirectory: { items, itemID in
+            state.handleRemoteDrop(of: items, into: .remote, targetItemID: itemID)
+        } onBeginDrag: { _ in
+        } onBeginRename: { itemID in
+            state.beginRenaming(itemID: itemID, in: .remote)
+        } onRequestDelete: { itemID in
+            state.requestDelete(itemID: itemID, in: .remote)
+        } onChooseDirectory: {
+        } onPresentRemotePathSheet: {
+            state.presentRemotePathSheet()
+        } onJumpRemoteHome: {
+            state.jumpToRemoteHomeDirectory()
+        } onJumpRemoteRoot: {
+            state.jumpToRemoteRootDirectory()
+        } onSortChange: { sort in
+            state.setBrowserSort(sort, for: .remote)
         }
     }
 
@@ -734,85 +766,90 @@ private struct BrowserPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 12) {
                     Label(title, systemImage: pane == .local ? "internaldrive" : "server.rack")
                         .font(.headline)
-                    Spacer()
+                        .lineLimit(1)
 
-                    if showsChooseDirectoryButton {
-                        Button {
-                            onChooseDirectory()
-                        } label: {
-                            Label(String(localized: "Choose Folder"), systemImage: "folder.badge.gearshape")
+                    Spacer(minLength: 12)
+
+                    HStack(spacing: 8) {
+                        if showsChooseDirectoryButton {
+                            Button {
+                                onChooseDirectory()
+                            } label: {
+                                Label(String(localized: "Choose Folder"), systemImage: "folder.badge.gearshape")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(String(localized: "Pick a local folder for the left pane."))
                         }
-                        .buttonStyle(.borderless)
-                        .help(String(localized: "Pick a local folder for the left pane."))
-                    }
 
-                    if showsRemotePathButton {
+                        if showsRemotePathButton {
+                            Menu {
+                                Button(String(localized: "Go to Folder…"), systemImage: "folder.badge.gearshape") {
+                                    onPresentRemotePathSheet()
+                                }
+
+                                Divider()
+
+                                Button(String(localized: "Home"), systemImage: "house") {
+                                    onJumpRemoteHome()
+                                }
+
+                                Button(String(localized: "Root"), systemImage: "externaldrive") {
+                                    onJumpRemoteRoot()
+                                }
+                            } label: {
+                                Label(String(localized: "Go"), systemImage: "folder.badge.gearshape")
+                            }
+                            .menuStyle(.borderlessButton)
+                            .help(String(localized: "Jump to a specific remote folder."))
+                        }
+
                         Menu {
-                            Button(String(localized: "Go to Folder…"), systemImage: "folder.badge.gearshape") {
-                                onPresentRemotePathSheet()
+                            ForEach(BrowserSortField.allCases, id: \.self) { field in
+                                Button {
+                                    onSortChange(.init(field: field, ascending: sortOption.ascending))
+                                } label: {
+                                    Label(
+                                        field.title,
+                                        systemImage: sortOption.field == field ? "checkmark" : "circle"
+                                    )
+                                }
                             }
 
                             Divider()
 
-                            Button(String(localized: "Home"), systemImage: "house") {
-                                onJumpRemoteHome()
-                            }
-
-                            Button(String(localized: "Root"), systemImage: "externaldrive") {
-                                onJumpRemoteRoot()
-                            }
-                        } label: {
-                            Label(String(localized: "Go"), systemImage: "folder.badge.gearshape")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .help(String(localized: "Jump to a specific remote folder."))
-                    }
-
-                    Menu {
-                        ForEach(BrowserSortField.allCases, id: \.self) { field in
                             Button {
-                                onSortChange(.init(field: field, ascending: sortOption.ascending))
+                                onSortChange(.init(field: sortOption.field, ascending: true))
                             } label: {
                                 Label(
-                                    field.title,
-                                    systemImage: sortOption.field == field ? "checkmark" : "circle"
+                                    String(localized: "Ascending"),
+                                    systemImage: sortOption.ascending ? "checkmark" : "arrow.up"
                                 )
                             }
-                        }
 
-                        Divider()
-
-                        Button {
-                            onSortChange(.init(field: sortOption.field, ascending: true))
+                            Button {
+                                onSortChange(.init(field: sortOption.field, ascending: false))
+                            } label: {
+                                Label(
+                                    String(localized: "Descending"),
+                                    systemImage: sortOption.ascending ? "arrow.down" : "checkmark"
+                                )
+                            }
                         } label: {
-                            Label(
-                                String(localized: "Ascending"),
-                                systemImage: sortOption.ascending ? "checkmark" : "arrow.up"
-                            )
+                            Label(String(localized: "Sort"), systemImage: "arrow.up.arrow.down.circle")
                         }
-
-                        Button {
-                            onSortChange(.init(field: sortOption.field, ascending: false))
-                        } label: {
-                            Label(
-                                String(localized: "Descending"),
-                                systemImage: sortOption.ascending ? "arrow.down" : "checkmark"
-                            )
-                        }
-                    } label: {
-                        Label(String(localized: "Sort"), systemImage: "arrow.up.arrow.down.circle")
                     }
                 }
 
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
                     Text(path)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .lineLimit(1)
                         .accessibilityIdentifier(pane == .local ? "local-browser-path" : "remote-browser-path")
 
                     Spacer(minLength: 0)
@@ -841,13 +878,6 @@ private struct BrowserPaneView: View {
                     }
                     ErrorCopyButton(message: errorMessage)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if items.isEmpty {
-                ContentUnavailableView(
-                    emptyStateTitle,
-                    systemImage: emptyStateSystemImage,
-                    description: Text(emptyStateDescription)
-                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: selectionBinding) {
@@ -914,9 +944,9 @@ private struct BrowserPaneView: View {
                             onBeginDrag(payloadItems)
                             return makeDragProvider(for: payloadItems)
                         }
-                        .onTapGesture {
+                        .simultaneousGesture(TapGesture().onEnded {
                             handlePrimaryClick(on: item.id)
-                        }
+                        })
                         .onDrop(
                             of: [UTType.fileURL, LocalDragItemCodec.itemType, RemoteDragItemCodec.itemType, .plainText],
                             isTargeted: Binding(
@@ -973,13 +1003,13 @@ private struct BrowserPaneView: View {
                                 onRequestDelete(item.id)
                             }
                         }
-                        .onTapGesture(count: 2) {
+                        .highPriorityGesture(TapGesture(count: 2).onEnded {
                             focusedPane = pane
                             onSelectionChange(item.id)
                             if item.isDirectory {
                                 onOpenSelection()
                             }
-                        }
+                        })
                     }
                 }
                 .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -991,6 +1021,12 @@ private struct BrowserPaneView: View {
                 .overlay {
                     if isDropTargeted {
                         dropTargetOverlay
+                    } else if items.isEmpty {
+                        ContentUnavailableView(
+                            emptyStateTitle,
+                            systemImage: emptyStateSystemImage,
+                            description: Text(emptyStateDescription)
+                        )
                     }
                 }
             }
@@ -1218,22 +1254,6 @@ private struct BrowserPaneView: View {
 
     private func handlePrimaryClick(on itemID: BrowserItem.ID) {
         focusedPane = pane
-        if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
-            var updatedIDs = selectedItemIDs
-            if updatedIDs.contains(itemID) {
-                updatedIDs.remove(itemID)
-            } else {
-                updatedIDs.insert(itemID)
-            }
-
-            if updatedIDs.isEmpty {
-                onSelectionChange(nil)
-            } else {
-                onSelectionSetChange(updatedIDs)
-            }
-            return
-        }
-
         onSelectionChange(itemID)
     }
 

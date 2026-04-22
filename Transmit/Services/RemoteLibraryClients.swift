@@ -31,7 +31,12 @@ struct LibraryBackedSFTPRemoteClient: RemoteClient {
     }
 
     func makeInitialLocation(relativeTo localDirectoryURL: URL) -> RemoteLocation {
-        makeRemoteLocation(path: "/")
+        RemoteLocation(
+            id: ".",
+            path: "sftp://\(config.normalizedHost)/~",
+            remotePath: ".",
+            directoryURL: nil
+        )
     }
 
     func makeLocation(for directoryURL: URL) -> RemoteLocation {
@@ -91,7 +96,7 @@ struct LibraryBackedSFTPRemoteClient: RemoteClient {
             guard !existingItem.isDirectory else {
                 throw CocoaError(.fileWriteFileExists)
             }
-            try session.deleteItem(at: existingItem.pathDescription, isDirectory: false)
+            try session.deleteItem(at: existingItem.pathDescription, isDirectory: false, recursively: false)
         }
         try session.uploadItem(at: localURL, toPath: destinationPath, progress: progress, isCancelled: isCancelled)
         return RemoteUploadResult(
@@ -157,8 +162,8 @@ struct LibraryBackedSFTPRemoteClient: RemoteClient {
         )
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
-        try session.deleteItem(at: remotePath, isDirectory: isDirectory)
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
+        try session.deleteItem(at: remotePath, isDirectory: isDirectory, recursively: recursively)
     }
 
     private func makeRemoteLocation(path: String) -> RemoteLocation {
@@ -410,7 +415,7 @@ struct LibraryBackedS3RemoteClient: RemoteClient {
         )
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
         if isDirectory {
             let directory = try transport.resolveDirectoryReference(for: remotePath, allowRootBucket: true)
             try transport.deletePrefix(bucket: directory.bucket, prefix: directory.prefix)
@@ -644,7 +649,7 @@ struct LibraryBackedWebDAVRemoteClient: RemoteClient {
         )
     }
 
-    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool) throws {
+    func deleteItem(named name: String, at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
         try transport.deleteItem(atRemotePath: remotePath)
     }
 
@@ -2506,8 +2511,7 @@ private final class CitadelSFTPSession: @unchecked Sendable {
     func loadDirectorySnapshot(in location: RemoteLocation) throws -> RemoteDirectorySnapshot {
         try withConnectedSFTP(timeout: Self.directoryTimeout, operationDescription: "Loading remote directory") { sftp in
             let homePath = try await sftp.getRealPath(atPath: ".")
-            let requestedPath = location.remotePath == "/" ? homePath : location.remotePath
-            let targetPath = try await sftp.getRealPath(atPath: requestedPath)
+            let targetPath = try await sftp.getRealPath(atPath: location.remotePath)
 
             let entries = try await sftp.listDirectory(atPath: targetPath)
             let items = entries
@@ -2641,14 +2645,35 @@ private final class CitadelSFTPSession: @unchecked Sendable {
         }
     }
 
-    func deleteItem(at remotePath: String, isDirectory: Bool) throws {
+    func deleteItem(at remotePath: String, isDirectory: Bool, recursively: Bool) throws {
         try withConnectedSFTP(timeout: Self.mutationTimeout, operationDescription: "Deleting remote item") { sftp in
             if isDirectory {
-                try await sftp.rmdir(at: remotePath)
+                if recursively {
+                    try await self.deleteDirectoryRecursively(at: remotePath, using: sftp)
+                } else {
+                    try await sftp.rmdir(at: remotePath)
+                }
             } else {
                 try await sftp.remove(at: remotePath)
             }
         }
+    }
+
+    private func deleteDirectoryRecursively(at remotePath: String, using sftp: SFTPClient) async throws {
+        let entries = try await sftp.listDirectory(atPath: remotePath)
+        let children = entries
+            .flatMap(\.components)
+            .compactMap { self.makeBrowserItem(from: $0, in: remotePath) }
+
+        for child in children {
+            if child.isDirectory {
+                try await deleteDirectoryRecursively(at: child.pathDescription, using: sftp)
+            } else {
+                try await sftp.remove(at: child.pathDescription)
+            }
+        }
+
+        try await sftp.rmdir(at: remotePath)
     }
 
     private func withConnectedSFTP<T>(
