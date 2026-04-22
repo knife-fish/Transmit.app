@@ -129,6 +129,16 @@
         }
       }
     },
+    "%@ queue to %@: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ queue to %2$@: "
+          }
+        }
+      }
+    },
     "%@: source %@ -> staging %@ -> sent %@ -> remote %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -158,6 +168,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld"
+          }
+        }
+      }
+    },
+    "%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
           }
         }
       }
@@ -195,6 +215,7 @@
       }
     },
     "%lld Downloads" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -226,6 +247,22 @@
         }
       }
     },
+    "%lld queued" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld queued"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 排队中"
+          }
+        }
+      }
+    },
     "%lld transfers" : {
       "localizations" : {
         "en" : {
@@ -243,6 +280,7 @@
       }
     },
     "%lld Uploads" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -893,6 +931,23 @@
         }
       }
     },
+    "Close this connection sheet." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close this connection sheet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭此连接面板。"
+          }
+        }
+      }
+    },
     "CLOUD" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1218,6 +1273,38 @@
         }
       }
     },
+    "Copied Site" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied Site"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制的站点"
+          }
+        }
+      }
+    },
+    "Copied site %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied site %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已复制站点 %@。"
+          }
+        }
+      }
+    },
     "Copied with renamed duplicates: %@." : {
       "localizations" : {
         "en" : {
@@ -1262,6 +1349,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制失败：%@"
+          }
+        }
+      }
+    },
+    "Copy Site" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Site"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制站点"
+          }
+        }
+      }
+    },
+    "Copy site failed: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy site failed: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制站点失败：%@"
           }
         }
       }
@@ -1814,7 +1933,20 @@
       }
     },
     "Download" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下载"
+          }
+        }
+      }
     },
     "Download batch completed with failures." : {
       "localizations" : {
@@ -1892,6 +2024,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将文件下载到当前本地文件夹"
+          }
+        }
+      }
+    },
+    "Download queue to %@: " : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download queue to %@: "
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下载队列到 %@："
           }
         }
       }
@@ -2860,6 +3009,7 @@
       }
     },
     "Open the saved site configuration for %@." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3228,6 +3378,7 @@
       }
     },
     "Preparing batch download to %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3244,6 +3395,7 @@
       }
     },
     "Preparing batch upload to %@" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4186,6 +4338,22 @@
     "Secret key saved in Keychain" : {
 
     },
+    "Select %@. Double-click to connect." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select %@. Double-click to connect."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 %@。双击即可连接。"
+          }
+        }
+      }
+    },
     "Select a file or folder to inspect metadata and transfer context." : {
       "localizations" : {
         "en" : {
@@ -5066,6 +5234,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将文件上传到当前远程文件夹"
+          }
+        }
+      }
+    },
+    "Upload queue to %@: " : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upload queue to %@: "
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上传队列到 %@："
           }
         }
       }

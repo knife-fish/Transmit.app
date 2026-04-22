@@ -518,7 +518,6 @@ private struct SidebarView: View {
                     HStack(spacing: 10) {
                         Button {
                             state.selectServer(server)
-                            state.editSelectedSite()
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: server.systemImage)
@@ -537,9 +536,14 @@ private struct SidebarView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) {
+                                state.selectServer(server)
+                                state.connectRemoteSession()
+                            }
                         }
                         .buttonStyle(.plain)
-                        .help("Open the saved site configuration for \(server.name).")
+                        .help("Select \(server.name). Double-click to connect.")
                         .contextMenu {
                             Button {
                                 state.selectServer(server)
@@ -553,6 +557,12 @@ private struct SidebarView: View {
                                 state.editSelectedSite()
                             } label: {
                                 Label("Edit Site", systemImage: "slider.horizontal.3")
+                            }
+
+                            Button {
+                                state.duplicateServer(server)
+                            } label: {
+                                Label("Copy Site", systemImage: "doc.on.doc")
                             }
 
                             Divider()
@@ -1039,7 +1049,7 @@ private struct BrowserPaneView: View {
     }
 
     private var transferActionDisabled: Bool {
-        selectedItemIDs.isEmpty || isBusy || (pane == .remote && !isRemoteSessionTransferAvailable)
+        selectedItemIDs.isEmpty || (pane == .remote && !isRemoteSessionTransferAvailable)
     }
 
     private var createFolderDisabled: Bool {
@@ -2155,7 +2165,7 @@ private struct ConnectionSheet: View {
     @State private var lastAnalyzedHost = ""
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(selectedServer?.name ?? (draft.name.isEmpty ? String(localized: "Quick Connect") : draft.name))
                     .font(.title3.weight(.semibold))

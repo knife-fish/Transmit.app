@@ -554,7 +554,11 @@ final class TransmitWorkspaceState: ObservableObject {
     private let localFileTransfer: LocalFileTransferService
     private let remoteSessionFactory: RemoteSessionFactory
     private var remoteConnectionAttemptID = UUID()
-    private let remoteWorkQueue = DispatchQueue(label: AppConfiguration.queueLabel("remote-work"), qos: .userInitiated)
+    private let remoteWorkQueue = DispatchQueue(
+        label: AppConfiguration.queueLabel("remote-work"),
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
     private let transferExecutionQueue = DispatchQueue(
         label: AppConfiguration.queueLabel("transfer-execution"),
         qos: .userInitiated,
@@ -1375,6 +1379,52 @@ final class TransmitWorkspaceState: ObservableObject {
         presentConnectionSheet()
     }
 
+    func duplicateServer(_ server: ServerProfile) {
+        let duplicate = ServerProfile(
+            id: UUID(),
+            name: uniqueDuplicateServerName(for: server.name),
+            endpoint: server.endpoint,
+            port: server.port,
+            username: server.username,
+            connectionKind: server.connectionKind,
+            authenticationMode: server.authenticationMode,
+            privateKeyPath: server.privateKeyPath,
+            publicKeyPath: server.publicKeyPath,
+            addressPreference: server.addressPreference,
+            s3Region: server.s3Region,
+            defaultLocalDirectoryPath: server.defaultLocalDirectoryPath,
+            defaultRemotePath: server.defaultRemotePath,
+            systemImage: server.systemImage,
+            accentName: server.accentName
+        )
+
+        var updatedServers = servers
+        let insertionIndex = (updatedServers.firstIndex(where: { $0.id == server.id }) ?? -1) + 1
+        updatedServers.insert(duplicate, at: min(insertionIndex, updatedServers.count))
+
+        do {
+            try savedServerStore.saveServers(updatedServers)
+            if let password = try? credentialStore.password(for: server.id), password.isEmpty == false {
+                try credentialStore.setPassword(password, for: duplicate.id)
+            }
+        } catch {
+            transferFeedback = TransferFeedback(
+                message: String(localized: "Copy site failed: \(error.localizedDescription)"),
+                status: .failed
+            )
+            return
+        }
+
+        servers = updatedServers
+        selectedServer = duplicate
+        connectionDraft = Self.makeConnectionDraft(for: duplicate, credentialStore: credentialStore)
+        hasSavedPasswordForSelectedServer = Self.hasSavedPassword(for: duplicate, credentialStore: credentialStore)
+        transferFeedback = TransferFeedback(
+            message: String(localized: "Copied site \(duplicate.name)."),
+            status: .completed
+        )
+    }
+
     func requestDeleteServer(_ server: ServerProfile) {
         deleteServerRequest = DeleteServerRequest(server: server)
     }
@@ -2181,6 +2231,19 @@ final class TransmitWorkspaceState: ObservableObject {
         return (try? credentialStore.password(for: server.id)) ?? ""
     }
 
+    private func uniqueDuplicateServerName(for name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = trimmedName.isEmpty ? String(localized: "Copied Site") : "\(trimmedName) Copy"
+        let existingNames = Set(servers.map(\.name))
+        guard existingNames.contains(baseName) else { return baseName }
+
+        var index = 2
+        while existingNames.contains("\(baseName) \(index)") {
+            index += 1
+        }
+        return "\(baseName) \(index)"
+    }
+
     private func defaultPort(for connectionKind: ConnectionKind) -> Int {
         switch connectionKind {
         case .sftp:
@@ -2379,16 +2442,61 @@ final class TransmitWorkspaceState: ObservableObject {
             let fileTransferSemaphore = DispatchSemaphore(value: maxConcurrentTransfers)
             let showsBatchSummary = sourceURLs.count > 1 || sourceURLs.contains(where: { ($0.hasDirectoryPath) })
             let batchActivityID = showsBatchSummary ? UUID() : nil
+            let batchDestination = remoteLocation.path
+            let initialBatchTitle = sourceURLs.count == 1 ? sourceURLs[0].lastPathComponent : nil
+            var batchQueuedCount = 0
 
             if let batchActivityID {
                 DispatchQueue.main.async {
                     self.prependTransferActivity(
                         .init(
                             id: batchActivityID,
-                            title: sourceURLs.count == 1 ? sourceURLs[0].lastPathComponent : String(localized: "\(sourceURLs.count) Uploads"),
-                            detail: String(localized: "Preparing batch upload to \(remoteLocation.path)"),
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: 0, itemLabel: "Uploads"),
+                            detail: transferBatchProgressDetail(
+                                operation: String(localized: "Upload"),
+                                destination: batchDestination,
+                                queuedCount: 0,
+                                successCount: 0,
+                                cancelledCount: 0,
+                                failedCount: 0
+                            ),
                             progress: 0,
                             status: .running
+                        )
+                    )
+                }
+            }
+
+            func refreshBatchActivity(status: TransferStatus = .running) {
+                guard let batchActivityID else { return }
+
+                let queuedCount: Int
+                let successCount: Int
+                let cancelledCount: Int
+                let failedCount: Int
+                accumulationLock.lock()
+                queuedCount = batchQueuedCount
+                successCount = copiedNames.count
+                cancelledCount = cancelledNames.count
+                failedCount = failedSourceURLs.count
+                accumulationLock.unlock()
+
+                DispatchQueue.main.async {
+                    self.replaceTransferActivity(
+                        id: batchActivityID,
+                        with: .init(
+                            id: batchActivityID,
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: queuedCount, itemLabel: "Uploads"),
+                            detail: transferBatchProgressDetail(
+                                operation: String(localized: "Upload"),
+                                destination: batchDestination,
+                                queuedCount: queuedCount,
+                                successCount: successCount,
+                                cancelledCount: cancelledCount,
+                                failedCount: failedCount
+                            ),
+                            progress: queuedCount == 0 ? 0 : Double(successCount + cancelledCount + failedCount) / Double(queuedCount),
+                            status: status
                         )
                     )
                 }
@@ -2410,18 +2518,28 @@ final class TransmitWorkspaceState: ObservableObject {
                 }
                 lastCopiedItemID = itemID
                 accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func recordCancellation(name: String) {
                 accumulationLock.lock()
                 cancelledNames.append(name)
                 accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func recordFailedSourceURL(_ sourceURL: URL) {
                 accumulationLock.lock()
                 failedSourceURLs.append(sourceURL)
                 accumulationLock.unlock()
+                refreshBatchActivity()
+            }
+
+            func recordQueuedBatchItem() {
+                accumulationLock.lock()
+                batchQueuedCount += 1
+                accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func withScopedLocalAccess<T>(_ sourceURL: URL, operation: () throws -> T) throws -> T {
@@ -2447,6 +2565,7 @@ final class TransmitWorkspaceState: ObservableObject {
                 let sourceName = sourceURL.lastPathComponent
                 let cancellationController = TransferCancellationController()
                 let pauseController = TransferPauseController()
+                recordQueuedBatchItem()
 
                 DispatchQueue.main.async {
                     self.prependTransferActivity(
@@ -2594,20 +2713,37 @@ final class TransmitWorkspaceState: ObservableObject {
                             self.updateTransferCancellationController(nil, for: activityID)
                         }
                     } catch {
-                        recordFailure(error.localizedDescription)
-                        recordFailedSourceURL(sourceURL)
-                        DispatchQueue.main.async {
-                            self.replaceTransferActivity(
-                                id: activityID,
-                                with: .init(
+                        if isTransferCancellationError(error) {
+                            recordCancellation(name: sourceName)
+                            DispatchQueue.main.async {
+                                self.replaceTransferActivity(
                                     id: activityID,
-                                    title: sourceName,
-                                    detail: error.localizedDescription,
-                                    progress: 1.0,
-                                    status: .failed
+                                    with: .init(
+                                        id: activityID,
+                                        title: sourceName,
+                                        detail: String(localized: "Transfer cancelled."),
+                                        progress: 1.0,
+                                        status: .cancelled
+                                    )
                                 )
-                            )
-                            self.updateTransferCancellationController(nil, for: activityID)
+                                self.updateTransferCancellationController(nil, for: activityID)
+                            }
+                        } else {
+                            recordFailure(error.localizedDescription)
+                            recordFailedSourceURL(sourceURL)
+                            DispatchQueue.main.async {
+                                self.replaceTransferActivity(
+                                    id: activityID,
+                                    with: .init(
+                                        id: activityID,
+                                        title: sourceName,
+                                        detail: error.localizedDescription,
+                                        progress: 1.0,
+                                        status: .failed
+                                    )
+                                )
+                                self.updateTransferCancellationController(nil, for: activityID)
+                            }
                         }
                     }
                 }
@@ -2618,6 +2754,7 @@ final class TransmitWorkspaceState: ObservableObject {
                 if resourceValues.isDirectory == true {
                     let activityID = UUID()
                     let directoryName = sourceURL.lastPathComponent
+                    recordQueuedBatchItem()
                     DispatchQueue.main.async {
                         self.prependTransferActivity(
                             .init(
@@ -2667,7 +2804,12 @@ final class TransmitWorkspaceState: ObservableObject {
                 do {
                     try uploadTree(at: sourceURL, to: remoteLocation)
                 } catch {
-                    recordFailure(error.localizedDescription)
+                    if isTransferCancellationError(error) {
+                        recordCancellation(name: sourceURL.lastPathComponent)
+                    } else {
+                        recordFailure(error.localizedDescription)
+                        recordFailedSourceURL(sourceURL)
+                    }
                 }
             }
 
@@ -2723,7 +2865,7 @@ final class TransmitWorkspaceState: ObservableObject {
                         id: batchActivityID,
                         with: .init(
                             id: batchActivityID,
-                            title: sourceURLs.count == 1 ? sourceURLs[0].lastPathComponent : String(localized: "\(sourceURLs.count) Uploads"),
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: batchQueuedCount, itemLabel: "Uploads"),
                             detail: batchMessage,
                             progress: 1.0,
                             status: batchStatus
@@ -2805,16 +2947,61 @@ final class TransmitWorkspaceState: ObservableObject {
             let fileTransferSemaphore = DispatchSemaphore(value: maxConcurrentTransfers)
             let showsBatchSummary = items.count > 1 || items.contains(where: \.isDirectory)
             let batchActivityID = showsBatchSummary ? UUID() : nil
+            let batchDestination = localDirectoryURL.lastPathComponent
+            let initialBatchTitle = items.count == 1 ? items[0].name : nil
+            var batchQueuedCount = 0
 
             if let batchActivityID {
                 DispatchQueue.main.async {
                     self.prependTransferActivity(
                         .init(
                             id: batchActivityID,
-                            title: items.count == 1 ? items[0].name : String(localized: "\(items.count) Downloads"),
-                            detail: String(localized: "Preparing batch download to \(localDirectoryURL.lastPathComponent)"),
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: 0, itemLabel: "Downloads"),
+                            detail: transferBatchProgressDetail(
+                                operation: String(localized: "Download"),
+                                destination: batchDestination,
+                                queuedCount: 0,
+                                successCount: 0,
+                                cancelledCount: 0,
+                                failedCount: 0
+                            ),
                             progress: 0,
                             status: .running
+                        )
+                    )
+                }
+            }
+
+            func refreshBatchActivity(status: TransferStatus = .running) {
+                guard let batchActivityID else { return }
+
+                let queuedCount: Int
+                let successCount: Int
+                let cancelledCount: Int
+                let failedCount: Int
+                accumulationLock.lock()
+                queuedCount = batchQueuedCount
+                successCount = copiedNames.count
+                cancelledCount = cancelledNames.count
+                failedCount = failedItems.count
+                accumulationLock.unlock()
+
+                DispatchQueue.main.async {
+                    self.replaceTransferActivity(
+                        id: batchActivityID,
+                        with: .init(
+                            id: batchActivityID,
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: queuedCount, itemLabel: "Downloads"),
+                            detail: transferBatchProgressDetail(
+                                operation: String(localized: "Download"),
+                                destination: batchDestination,
+                                queuedCount: queuedCount,
+                                successCount: successCount,
+                                cancelledCount: cancelledCount,
+                                failedCount: failedCount
+                            ),
+                            progress: queuedCount == 0 ? 0 : Double(successCount + cancelledCount + failedCount) / Double(queuedCount),
+                            status: status
                         )
                     )
                 }
@@ -2836,18 +3023,28 @@ final class TransmitWorkspaceState: ObservableObject {
                 }
                 lastCopiedItemID = itemID
                 accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func recordCancellation(name: String) {
                 accumulationLock.lock()
                 cancelledNames.append(name)
                 accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func recordFailedItem(_ item: BrowserItem) {
                 accumulationLock.lock()
                 failedItems.append(item)
                 accumulationLock.unlock()
+                refreshBatchActivity()
+            }
+
+            func recordQueuedBatchItem() {
+                accumulationLock.lock()
+                batchQueuedCount += 1
+                accumulationLock.unlock()
+                refreshBatchActivity()
             }
 
             func downloadTree(_ item: BrowserItem, into directoryURL: URL) throws {
@@ -2855,6 +3052,7 @@ final class TransmitWorkspaceState: ObservableObject {
                 let activityTitle = item.name
                 let cancellationController = item.isDirectory ? nil : TransferCancellationController()
                 let pauseController = item.isDirectory ? nil : TransferPauseController()
+                recordQueuedBatchItem()
 
                 DispatchQueue.main.async {
                     self.prependTransferActivity(
@@ -3023,38 +3221,72 @@ final class TransmitWorkspaceState: ObservableObject {
                                     self.updateTransferCancellationController(nil, for: activityID)
                                 }
                             } catch {
-                                recordFailure(error.localizedDescription)
-                                recordFailedItem(item)
-                                DispatchQueue.main.async {
-                                    self.replaceTransferActivity(
-                                        id: activityID,
-                                        with: .init(
+                                if isTransferCancellationError(error) {
+                                    recordCancellation(name: activityTitle)
+                                    DispatchQueue.main.async {
+                                        self.replaceTransferActivity(
                                             id: activityID,
-                                            title: activityTitle,
-                                            detail: error.localizedDescription,
-                                            progress: 1.0,
-                                            status: .failed
+                                            with: .init(
+                                                id: activityID,
+                                                title: activityTitle,
+                                                detail: String(localized: "Transfer cancelled."),
+                                                progress: 1.0,
+                                                status: .cancelled
+                                            )
                                         )
-                                    )
-                                    self.updateTransferCancellationController(nil, for: activityID)
+                                        self.updateTransferCancellationController(nil, for: activityID)
+                                    }
+                                } else {
+                                    recordFailure(error.localizedDescription)
+                                    recordFailedItem(item)
+                                    DispatchQueue.main.async {
+                                        self.replaceTransferActivity(
+                                            id: activityID,
+                                            with: .init(
+                                                id: activityID,
+                                                title: activityTitle,
+                                                detail: error.localizedDescription,
+                                                progress: 1.0,
+                                                status: .failed
+                                            )
+                                        )
+                                        self.updateTransferCancellationController(nil, for: activityID)
+                                    }
                                 }
                             }
                         }
                     }
                 } catch {
-                    recordFailure(error.localizedDescription)
-                    recordFailedItem(item)
-                    DispatchQueue.main.async {
-                        self.replaceTransferActivity(
-                            id: activityID,
-                            with: .init(
+                    if isTransferCancellationError(error) {
+                        recordCancellation(name: activityTitle)
+                        DispatchQueue.main.async {
+                            self.replaceTransferActivity(
                                 id: activityID,
-                                title: activityTitle,
-                                detail: error.localizedDescription,
-                                progress: 1.0,
-                                status: .failed
+                                with: .init(
+                                    id: activityID,
+                                    title: activityTitle,
+                                    detail: String(localized: "Transfer cancelled."),
+                                    progress: 1.0,
+                                    status: .cancelled
+                                )
                             )
-                        )
+                            self.updateTransferCancellationController(nil, for: activityID)
+                        }
+                    } else {
+                        recordFailure(error.localizedDescription)
+                        recordFailedItem(item)
+                        DispatchQueue.main.async {
+                            self.replaceTransferActivity(
+                                id: activityID,
+                                with: .init(
+                                    id: activityID,
+                                    title: activityTitle,
+                                    detail: error.localizedDescription,
+                                    progress: 1.0,
+                                    status: .failed
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -3063,7 +3295,12 @@ final class TransmitWorkspaceState: ObservableObject {
                 do {
                     try downloadTree(item, into: localDirectoryURL)
                 } catch {
-                    recordFailure(error.localizedDescription)
+                    if isTransferCancellationError(error) {
+                        recordCancellation(name: item.name)
+                    } else {
+                        recordFailure(error.localizedDescription)
+                        recordFailedItem(item)
+                    }
                 }
             }
 
@@ -3117,7 +3354,7 @@ final class TransmitWorkspaceState: ObservableObject {
                         id: batchActivityID,
                         with: .init(
                             id: batchActivityID,
-                            title: items.count == 1 ? items[0].name : String(localized: "\(items.count) Downloads"),
+                            title: transferBatchTitle(singleTitle: initialBatchTitle, itemCount: batchQueuedCount, itemLabel: "Downloads"),
                             detail: batchMessage,
                             progress: 1.0,
                             status: batchStatus
@@ -3596,6 +3833,74 @@ private func transferBatchDetail(
         return String(localized: "\(operation) batch finished with no processed items.")
     }
     return String(localized: "\(operation) batch: ") + fragments.joined(separator: ", ")
+}
+
+private func isTransferCancellationError(_ error: Error) -> Bool {
+    func containsCancellation(_ error: Error, visited: inout Set<String>) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        let nsError = error as NSError
+        let visitKey = "\(nsError.domain)#\(nsError.code)#\(nsError.localizedDescription)"
+        guard visited.insert(visitKey).inserted else { return false }
+
+        if nsError.domain == "Swift.CancellationError" {
+            return true
+        }
+
+        if String(reflecting: type(of: error)).contains("CancellationError") {
+            return true
+        }
+
+        if nsError.localizedDescription.contains("CancellationError") {
+            return true
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error,
+           containsCancellation(underlying, visited: &visited) {
+            return true
+        }
+
+        if let detailed = nsError.userInfo[NSDetailedErrorsKey] as? [NSError] {
+            for nested in detailed where containsCancellation(nested, visited: &visited) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    var visited: Set<String> = []
+    return containsCancellation(error, visited: &visited)
+}
+
+private func transferBatchProgressDetail(
+    operation: String,
+    destination: String,
+    queuedCount: Int,
+    successCount: Int,
+    cancelledCount: Int,
+    failedCount: Int
+) -> String {
+    var fragments = [String(localized: "\(queuedCount) queued")]
+    if successCount > 0 {
+        fragments.append(String(localized: "\(successCount) completed"))
+    }
+    if cancelledCount > 0 {
+        fragments.append(String(localized: "\(cancelledCount) cancelled"))
+    }
+    if failedCount > 0 {
+        fragments.append(String(localized: "\(failedCount) failed"))
+    }
+    return String(localized: "\(operation) queue to \(destination): ") + fragments.joined(separator: ", ")
+}
+
+private func transferBatchTitle(singleTitle: String?, itemCount: Int, itemLabel: String) -> String {
+    if itemCount <= 1, let singleTitle {
+        return singleTitle
+    }
+    return String(localized: "\(itemCount) \(itemLabel)")
 }
 
 private func remoteByteCount(
