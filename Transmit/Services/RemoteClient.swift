@@ -60,6 +60,27 @@ extension RemoteClient {
     func loadItems(in location: RemoteLocation) throws -> [BrowserItem] {
         try loadDirectorySnapshot(in: location).items
     }
+
+    func createDirectory(
+        named proposedName: String,
+        in remoteLocation: RemoteLocation,
+        conflictPolicy: TransferConflictPolicy
+    ) throws -> RemoteMutationResult {
+        switch conflictPolicy {
+        case .rename:
+            return try createDirectory(named: proposedName, in: remoteLocation)
+        case .overwrite:
+            if let existingItem = try loadItems(in: remoteLocation).first(where: { $0.name == proposedName }) {
+                try deleteItem(
+                    named: existingItem.name,
+                    at: existingItem.pathDescription,
+                    isDirectory: existingItem.isDirectory,
+                    recursively: true
+                )
+            }
+            return try createDirectory(named: proposedName, in: remoteLocation)
+        }
+    }
 }
 
 struct RemoteSessionServices {

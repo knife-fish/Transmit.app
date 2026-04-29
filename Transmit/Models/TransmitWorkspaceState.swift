@@ -806,6 +806,10 @@ final class TransmitWorkspaceState: ObservableObject {
         remoteActivityCount > 0 || remoteSessionStatus == .connecting
     }
 
+    var isRemoteConnectionBusy: Bool {
+        remoteSessionStatus == .connecting
+    }
+
     var activeRemoteServer: ServerProfile? {
         guard let remoteSessionServerID else { return nil }
         return servers.first(where: { $0.id == remoteSessionServerID })
@@ -1698,7 +1702,7 @@ final class TransmitWorkspaceState: ObservableObject {
     }
 
     func presentRemotePathSheet() {
-        guard isRemoteConnected, !isRemoteBusy else { return }
+        guard isRemoteConnected else { return }
         remotePathDraft = remoteLocation.remotePath
         showsRemotePathSheet = true
     }
@@ -2800,7 +2804,11 @@ final class TransmitWorkspaceState: ObservableObject {
                         )
                     }
 
-                    let mutation = try clientBox.client.createDirectory(named: directoryName, in: destination)
+                    let mutation = try clientBox.client.createDirectory(
+                        named: directoryName,
+                        in: destination,
+                        conflictPolicy: resolvedConflictPolicy
+                    )
                     let nestedLocation = clientBox.client.makeLocation(for: URL(fileURLWithPath: mutation.remoteItemID))
                     recordSuccess(
                         name: mutation.destinationName,

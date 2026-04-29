@@ -412,7 +412,7 @@ struct TransmitWorkspaceView: View {
             canNavigateUp: state.canNavigateToRemoteParent,
             remoteSessionStatus: state.remoteSessionStatus,
             isNetworkReachable: state.isNetworkReachable,
-            isBusy: state.isRemoteBusy,
+            isBusy: state.isRemoteConnectionBusy,
             sortOption: state.remoteBrowserSort,
             pane: .remote,
             showsChooseDirectoryButton: false,
@@ -614,7 +614,7 @@ private struct SidebarView: View {
                                 .foregroundStyle(accentColor(named: server.accentName))
                         }
                         .buttonStyle(.borderless)
-                        .disabled(state.isRemoteBusy)
+                        .disabled(state.isRemoteConnectionBusy)
                         .help("Connect to \(server.name).")
                     }
                 }
@@ -763,6 +763,10 @@ private struct BrowserPaneView: View {
 
     @State private var isDropTargeted = false
     @State private var targetedDirectoryItemID: BrowserItem.ID?
+    @State private var selectionAnchorItemID: BrowserItem.ID?
+
+    private let primaryHeaderActionWidth: CGFloat = 148
+    private let sortHeaderActionWidth: CGFloat = 88
 
     var body: some View {
         VStack(spacing: 0) {
@@ -775,37 +779,40 @@ private struct BrowserPaneView: View {
                     Spacer(minLength: 12)
 
                     HStack(spacing: 8) {
-                        if showsChooseDirectoryButton {
-                            Button {
-                                onChooseDirectory()
-                            } label: {
-                                Label(String(localized: "Choose Folder"), systemImage: "folder.badge.gearshape")
+                        Group {
+                            if showsChooseDirectoryButton {
+                                Button {
+                                    onChooseDirectory()
+                                } label: {
+                                    Label(String(localized: "Choose Folder"), systemImage: "folder.badge.gearshape")
+                                }
+                                .buttonStyle(.borderless)
+                                .help(String(localized: "Pick a local folder for the left pane."))
+                            } else if showsRemotePathButton {
+                                Menu {
+                                    Button(String(localized: "Go to Folder…"), systemImage: "folder.badge.gearshape") {
+                                        onPresentRemotePathSheet()
+                                    }
+
+                                    Divider()
+
+                                    Button(String(localized: "Home"), systemImage: "house") {
+                                        onJumpRemoteHome()
+                                    }
+
+                                    Button(String(localized: "Root"), systemImage: "externaldrive") {
+                                        onJumpRemoteRoot()
+                                    }
+                                } label: {
+                                    Label(String(localized: "Go"), systemImage: "folder.badge.gearshape")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .help(String(localized: "Jump to a specific remote folder."))
+                            } else {
+                                Color.clear
                             }
-                            .buttonStyle(.borderless)
-                            .help(String(localized: "Pick a local folder for the left pane."))
                         }
-
-                        if showsRemotePathButton {
-                            Menu {
-                                Button(String(localized: "Go to Folder…"), systemImage: "folder.badge.gearshape") {
-                                    onPresentRemotePathSheet()
-                                }
-
-                                Divider()
-
-                                Button(String(localized: "Home"), systemImage: "house") {
-                                    onJumpRemoteHome()
-                                }
-
-                                Button(String(localized: "Root"), systemImage: "externaldrive") {
-                                    onJumpRemoteRoot()
-                                }
-                            } label: {
-                                Label(String(localized: "Go"), systemImage: "folder.badge.gearshape")
-                            }
-                            .menuStyle(.borderlessButton)
-                            .help(String(localized: "Jump to a specific remote folder."))
-                        }
+                        .frame(width: primaryHeaderActionWidth, alignment: .trailing)
 
                         Menu {
                             ForEach(BrowserSortField.allCases, id: \.self) { field in
@@ -841,6 +848,7 @@ private struct BrowserPaneView: View {
                         } label: {
                             Label(String(localized: "Sort"), systemImage: "arrow.up.arrow.down.circle")
                         }
+                        .frame(width: sortHeaderActionWidth, alignment: .trailing)
                     }
                 }
 
@@ -1198,8 +1206,14 @@ private struct BrowserPaneView: View {
             set: { updatedIDs in
                 focusedPane = pane
                 if updatedIDs.isEmpty {
-                    onSelectionChange(nil)
+                    selectionAnchorItemID = nil
+                    onSelectionSetChange([])
                 } else {
+                    if let selectedItemID, updatedIDs.contains(selectedItemID) {
+                        selectionAnchorItemID = selectedItemID
+                    } else {
+                        selectionAnchorItemID = items.first(where: { updatedIDs.contains($0.id) })?.id
+                    }
                     onSelectionSetChange(updatedIDs)
                 }
             }
@@ -1254,7 +1268,50 @@ private struct BrowserPaneView: View {
 
     private func handlePrimaryClick(on itemID: BrowserItem.ID) {
         focusedPane = pane
+
+        let modifierFlags = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        let commandPressed = modifierFlags.contains(.command)
+        let shiftPressed = modifierFlags.contains(.shift)
+
+        if shiftPressed {
+            let anchorID = selectionAnchorItemID ?? selectedItemID ?? itemID
+            let selectedRange = contiguousSelection(from: anchorID, to: itemID)
+
+            if commandPressed {
+                onSelectionSetChange(selectedItemIDs.union(selectedRange))
+            } else {
+                onSelectionSetChange(selectedRange)
+            }
+            return
+        }
+
+        if commandPressed {
+            var updatedIDs = selectedItemIDs
+            if updatedIDs.contains(itemID) {
+                updatedIDs.remove(itemID)
+            } else {
+                updatedIDs.insert(itemID)
+            }
+            selectionAnchorItemID = itemID
+            onSelectionSetChange(updatedIDs)
+            return
+        }
+
+        selectionAnchorItemID = itemID
         onSelectionChange(itemID)
+    }
+
+    private func contiguousSelection(from anchorID: BrowserItem.ID, to itemID: BrowserItem.ID) -> Set<BrowserItem.ID> {
+        guard
+            let anchorIndex = items.firstIndex(where: { $0.id == anchorID }),
+            let itemIndex = items.firstIndex(where: { $0.id == itemID })
+        else {
+            return [itemID]
+        }
+
+        let lowerBound = min(anchorIndex, itemIndex)
+        let upperBound = max(anchorIndex, itemIndex)
+        return Set(items[lowerBound...upperBound].map(\.id))
     }
 
     private func makeDragProvider(for dragItems: [BrowserItem]) -> NSItemProvider {
