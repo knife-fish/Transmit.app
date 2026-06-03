@@ -11,12 +11,13 @@ struct LocalFileBrowserService {
 
     func makeInitialDirectoryURL() -> URL {
         let fileManager = FileManager.default
-        let downloadsURL: URL? = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        let documentsURL: URL? = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        let desktopURL: URL? = fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first
-        let temporaryURL: URL? = fileManager.temporaryDirectory
+        let downloadsURL = LocalUserDirectories.downloads(fileManager: fileManager)
+        let documentsURL = LocalUserDirectories.documents(fileManager: fileManager)
+        let desktopURL = LocalUserDirectories.desktop(fileManager: fileManager)
 
-        let candidates = [downloadsURL, documentsURL, desktopURL, temporaryURL].compactMap { $0 }
+        let candidates = [downloadsURL, documentsURL, desktopURL]
+            .map(\.standardizedFileURL)
+        var firstAccessibleCandidate: URL?
         var firstNonEmptyCandidate: URL?
 
         for candidate in candidates {
@@ -26,6 +27,10 @@ struct LocalFileBrowserService {
                 options: [.skipsHiddenFiles]
             ) else {
                 continue
+            }
+
+            if firstAccessibleCandidate == nil {
+                firstAccessibleCandidate = candidate
             }
 
             if !contents.isEmpty, firstNonEmptyCandidate == nil {
@@ -45,28 +50,37 @@ struct LocalFileBrowserService {
             return firstNonEmptyCandidate
         }
 
-        return ensureFallbackWorkspace()
+        return firstAccessibleCandidate ?? LocalUserDirectories.home(fileManager: fileManager)
     }
 
     func makeSecondaryDirectoryURL(relativeTo primaryDirectoryURL: URL) -> URL {
         let fileManager = FileManager.default
-        let downloadsURL: URL? = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        let documentsURL: URL? = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        let desktopURL: URL? = fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first
-        let temporaryURL: URL? = fileManager.temporaryDirectory
+        let downloadsURL = LocalUserDirectories.downloads(fileManager: fileManager)
+        let documentsURL = LocalUserDirectories.documents(fileManager: fileManager)
+        let desktopURL = LocalUserDirectories.desktop(fileManager: fileManager)
 
-        let candidates = [documentsURL, downloadsURL, desktopURL, temporaryURL]
-            .compactMap { $0?.standardizedFileURL }
+        let candidates = [documentsURL, downloadsURL, desktopURL]
+            .map(\.standardizedFileURL)
         let primary = primaryDirectoryURL.standardizedFileURL
+        var firstAccessibleCandidate: URL?
 
         for candidate in candidates where candidate != primary {
             if let contents = try? fileManager.contentsOfDirectory(
                 at: candidate,
                 includingPropertiesForKeys: [.isDirectoryKey],
                 options: [.skipsHiddenFiles]
-            ), !contents.isEmpty {
-                return candidate
+            ) {
+                if firstAccessibleCandidate == nil {
+                    firstAccessibleCandidate = candidate
+                }
+                if !contents.isEmpty {
+                    return candidate
+                }
             }
+        }
+
+        if let firstAccessibleCandidate {
+            return firstAccessibleCandidate
         }
 
         let parent = primary.deletingLastPathComponent()
@@ -74,7 +88,7 @@ struct LocalFileBrowserService {
             return parent
         }
 
-        return ensureFallbackWorkspace()
+        return LocalUserDirectories.home(fileManager: fileManager)
     }
 
     func loadItems(in directoryURL: URL) throws -> [BrowserItem] {
@@ -167,22 +181,4 @@ struct LocalFileBrowserService {
         return formatter2.string(from: date)
     }
 
-    private func ensureFallbackWorkspace() -> URL {
-        let fileManager = FileManager.default
-        let baseURL = fileManager.temporaryDirectory
-            .appendingPathComponent("TransmitLocalWorkspace", isDirectory: true)
-
-        if !fileManager.fileExists(atPath: baseURL.path) {
-            try? fileManager.createDirectory(at: baseURL, withIntermediateDirectories: true)
-            try? fileManager.createDirectory(at: baseURL.appendingPathComponent("Incoming", isDirectory: true), withIntermediateDirectories: true)
-            try? fileManager.createDirectory(at: baseURL.appendingPathComponent("Archives", isDirectory: true), withIntermediateDirectories: true)
-            try? String(localized: "Welcome to Transmit local browsing.\n").write(
-                to: baseURL.appendingPathComponent("README.txt"),
-                atomically: true,
-                encoding: .utf8
-            )
-        }
-
-        return baseURL
-    }
 }

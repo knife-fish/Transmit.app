@@ -4163,10 +4163,10 @@ extension TransmitWorkspaceState {
 
     static func defaultPlaces(currentLocalDirectory: URL) -> [PlaceItem] {
         let fileManager = FileManager.default
-        let homeDirectory = actualUserHomeDirectory(fileManager: fileManager)
-        let desktopDirectory = fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first?.standardizedFileURL
-        let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL
-        let downloadsDirectory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first?.standardizedFileURL
+        let homeDirectory = LocalUserDirectories.home(fileManager: fileManager)
+        let desktopDirectory = LocalUserDirectories.desktop(fileManager: fileManager)
+        let documentsDirectory = LocalUserDirectories.documents(fileManager: fileManager)
+        let downloadsDirectory = LocalUserDirectories.downloads(fileManager: fileManager)
 
         let localDirectories: [(String, URL?, String, Bool)] = [
             (String(localized: "Current Folder"), currentLocalDirectory.standardizedFileURL, "folder.fill", false),
@@ -4310,16 +4310,4 @@ extension TransmitWorkspaceState {
         return false
     }
 
-}
-
-private func actualUserHomeDirectory(fileManager: FileManager) -> URL {
-    if let homeDirectory = fileManager.homeDirectory(forUser: NSUserName())?.standardizedFileURL {
-        return homeDirectory
-    }
-
-    guard let passwordEntry = getpwuid(getuid()), let homePath = passwordEntry.pointee.pw_dir else {
-        return fileManager.homeDirectoryForCurrentUser.standardizedFileURL
-    }
-
-    return URL(fileURLWithPath: String(cString: homePath), isDirectory: true).standardizedFileURL
 }

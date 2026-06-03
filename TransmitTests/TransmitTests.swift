@@ -245,6 +245,29 @@ struct TransmitTests {
         }
     }
 
+    @Test func defaultLocalPlacesUseActualUserHomeOutsideSandboxContainer() async throws {
+        let currentDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let places = await MainActor.run {
+            TransmitWorkspaceState.defaultPlaces(currentLocalDirectory: currentDirectory)
+        }
+        let actualHome = LocalUserDirectories.home()
+
+        func localURL(for title: String) -> URL? {
+            places.compactMap { place -> URL? in
+                guard place.title == title, case .localDirectory(let url) = place.destination else {
+                    return nil
+                }
+                return url.standardizedFileURL
+            }.first
+        }
+
+        #expect(localURL(for: String(localized: "Home")) == actualHome)
+        #expect(localURL(for: String(localized: "Desktop")) == actualHome.appendingPathComponent("Desktop", isDirectory: true).standardizedFileURL)
+        #expect(localURL(for: String(localized: "Documents")) == actualHome.appendingPathComponent("Documents", isDirectory: true).standardizedFileURL)
+        #expect(localURL(for: String(localized: "Downloads")) == actualHome.appendingPathComponent("Downloads", isDirectory: true).standardizedFileURL)
+    }
+
     @Test func workspaceDefaultsToComfortableDensityAndCanSwitchModes() async throws {
         let baseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
